@@ -83,11 +83,10 @@ class AriadneKlingVideo:
         for element in elements:
             local = str(element.get("localPath") or "")
             if local:
-                element["videoUrl" if local.lower().endswith((".mp4", ".mov", ".webm")) else "imageUrls"] = (
-                    [kie_core.upload_to_kie("video", local, api_key)]
-                    if local.lower().endswith((".mp4", ".mov", ".webm"))
-                    else kie_core.upload_to_kie("image", local, api_key)
-                )
+                if local.lower().endswith((".mp4", ".mov", ".webm")):
+                    element["videoUrl"] = kie_core.upload_to_kie("video", local, api_key)
+                else:
+                    element["imageUrls"] = [kie_core.upload_to_kie("image", local, api_key)]  # imageUrls 必须是数组
         shots = _json_of(kling_shots, "kling_shots")
 
         spec = {

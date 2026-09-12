@@ -21,12 +21,18 @@ def temp_dir() -> Path:
 
 
 def image_to_file(image) -> str:
-    """ComfyUI IMAGE 张量 [B,H,W,C]（0-1 float）→ PNG 临时文件，返回路径。"""
+    """ComfyUI IMAGE 张量 [B,H,W,C]（0-1 float，torch 或 numpy）→ PNG 临时文件。"""
     import numpy as np
     from PIL import Image
 
-    tensor = image[0] if image.dim() == 4 else image
-    array = (tensor.detach().cpu().numpy().clip(0, 1) * 255.0).round().astype(np.uint8)
+    if hasattr(image, "dim"):  # torch.Tensor
+        image = image[0] if image.dim() == 4 else image
+        array = (image.detach().cpu().numpy().clip(0, 1) * 255.0).round().astype(np.uint8)
+    else:  # numpy [B,H,W,C] 或 [H,W,C]
+        array = np.asarray(image)
+        if array.ndim == 4:
+            array = array[0]
+        array = (array.clip(0, 1) * 255.0).round().astype(np.uint8)
     path = temp_dir() / f"ariadne-img-{uuid.uuid4().hex[:8]}.png"
     Image.fromarray(array).save(path)
     return str(path)
@@ -103,6 +109,14 @@ def trim_video(path: str, ranges: list[list[float]], out_dir: str, base_name: st
     """
     info = probe_video(path)
     duration = info["seconds"] or 0
+    has_audio = False
+    try:
+        import av
+
+        with av.open(path) as container:
+            has_audio = len(container.streams.audio) > 0
+    except Exception:
+        has_audio = False
     ranges = [
         [max(0.0, float(start)), min(float(end), duration) if duration else float(end)]
         for start, end in ranges
@@ -116,12 +130,14 @@ def trim_video(path: str, ranges: list[list[float]], out_dir: str, base_name: st
 
     if len(ranges) == 1:
         start, end = ranges[0]
+        # -ss 做输入选项 + -t 输出选项（时长）：-to 与输入 -ss 组合的基准点有歧义，避免。
         command = [
-            "ffmpeg", "-y", "-hide_banner", "-nostats", "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
-            "-i", path, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "ffmpeg", "-y", "-hide_banner", "-nostats", "-ss", f"{start:.3f}", "-i", path,
+            "-t", f"{end - start:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-c:a", "aac", "-movflags", "+faststart", str(output),
         ]
-    else:
+    elif has_audio:
         inputs: list[str] = ["-i", path]
         filters = []
         for index, (start, end) in enumerate(ranges):
@@ -135,6 +151,19 @@ def trim_video(path: str, ranges: list[list[float]], out_dir: str, base_name: st
             "ffmpeg", "-y", "-hide_banner", "-nostats", *inputs,
             "-filter_complex", ";".join(filters), "-map", "[vout]", "-map", "[aout]",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac",
+            "-movflags", "+faststart", str(output),
+        ]
+    else:
+        # 无音轨素材（如 testsrc/静音导出）：只用视频分支，避免 [0:a] 匹配不到流直接失败。
+        filters = []
+        for index, (start, end) in enumerate(ranges):
+            filters.append(f"[0:v]trim={start:.3f}:{end:.3f},setpts=PTS-STARTPTS[v{index}]")
+        video_labels = "".join(f"[v{i}]" for i in range(len(ranges)))
+        filters.append(f"{video_labels}concat=n={len(ranges)}:v=1:a=0[vout]")
+        command = [
+            "ffmpeg", "-y", "-hide_banner", "-nostats", "-i", path,
+            "-filter_complex", ";".join(filters), "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-movflags", "+faststart", str(output),
         ]
     result = subprocess.run(command, capture_output=True, text=True, timeout=1800)

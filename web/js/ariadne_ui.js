@@ -384,9 +384,10 @@ function openTrimDialog(node, widget, tile) {
     overlay.className = "ariadne-overlay";
     const url = `/view?filename=${encodeURIComponent(tile.name)}&subfolder=${encodeURIComponent(tile.subfolder)}&type=input`;
     const seconds = Number(tile.seconds || 0);
+    const safeName = String(tile.name).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     overlay.innerHTML = `
         <div class="ariadne-dialog">
-            <div class="ariadne-dialog-title">✂ 裁剪 · ${tile.name}（源 ${seconds.toFixed(1)}s）</div>
+            <div class="ariadne-dialog-title">✂ 裁剪 · ${safeName}（源 ${seconds.toFixed(1)}s）</div>
             <video src="${url}" class="ariadne-trim-video" muted loop autoplay></video>
             <div class="ariadne-trim-timeline"><div class="ariadne-trim-keep"></div>
                 <div class="ariadne-trim-handle ariadne-trim-start"></div>
@@ -443,9 +444,34 @@ function openTrimDialog(node, widget, tile) {
 
     overlay.querySelector(".ariadne-trim-cancel").addEventListener("click", () => overlay.remove());
     const modeSelect = overlay.querySelector(".ariadne-trim-mode");
+    // 多区间可视化：把 keep 条换成每组一段的渲染。
+    const renderRanges = (ranges) => {
+        keep.style.width = "0";
+        timeline.querySelectorAll(".ariadne-trim-keep-seg").forEach((node) => node.remove());
+        for (const [segStart, segEnd] of ranges) {
+            const seg = document.createElement("div");
+            seg.className = "ariadne-trim-keep ariadne-trim-keep-seg";
+            seg.style.left = `${seconds ? (segStart / seconds) * 100 : 0}%`;
+            seg.style.width = `${seconds ? ((segEnd - segStart) / seconds) * 100 : 0}%`;
+            timeline.appendChild(seg);
+        }
+    };
     modeSelect.addEventListener("change", async () => {
         const mode = modeSelect.value;
-        if (mode === "align") { start = 0; end = Math.min(seconds, Number(node.widgets.find((w) => w.name === "duration")?.value || 10)); render(); return; }
+        if (mode === "manual") {
+            timeline.__keepRanges = null;
+            timeline.querySelectorAll(".ariadne-trim-keep-seg").forEach((node) => node.remove());
+            render();
+            return;
+        }
+        if (mode === "align") {
+            timeline.__keepRanges = null;
+            const target = Number(node.widgets.find((w) => w.name === "duration")?.value || 0);
+            start = 0;
+            end = Math.min(seconds, target > 0 ? target : seconds); // duration=-1（编辑模式）时不取负值
+            render();
+            return;
+        }
         if (mode === "story") {
             rangeLabel.textContent = "检测切点中…";
             const response = await fetch("/ariadne/trim", {
@@ -453,27 +479,30 @@ function openTrimDialog(node, widget, tile) {
                 body: JSON.stringify({ name: tile.name, subfolder: tile.subfolder, detect: true }),
             });
             const data = await response.json();
-            const points = (data.cutPoints || []).filter((point) => point < seconds);
-            if (!points.length) { render(); return; }
-            // 水位法：总保留摊到输出时长，每镜保留开头一段。
+            const points = (data.cutPoints || []).filter((point) => point > 0 && point < seconds);
+            if (!points.length) {
+                timeline.__keepRanges = null;
+                rangeLabel.textContent = "未检测到切点，请改用手动区间";
+                render();
+                return;
+            }
+            // 水位法：把目标保留时长摊到每个镜头的开头一段（画布版 trim.ts 同款）。
             const durationWidget = node.widgets.find((w) => w.name === "duration");
-            const target = Math.min(seconds, Number(durationWidget?.value || 10));
+            const target = Math.min(seconds, Number(durationWidget?.value || 0) > 0 ? Number(durationWidget.value) : seconds);
             const bounds = [0, ...points, seconds];
             const segments = bounds.slice(0, -1).map((bound, index) => [bound, bounds[index + 1]]);
             const keepRanges = [];
             let remaining = target;
             for (const [segStart, segEnd] of segments) {
+                if (remaining <= 0.01) break;
                 const length = segEnd - segStart;
-                const take = Math.min(length, Math.max(0.5, remaining / Math.max(1, segments.length - keepRanges.length)));
-                if (remaining <= 0) break;
-                keepRanges.push([segStart, segStart + Math.min(take, length)]);
+                const take = Math.min(length, remaining);
+                keepRanges.push([segStart, segStart + take]);
                 remaining -= take;
             }
-            start = keepRanges[0]?.[0] ?? 0;
-            end = keepRanges.reduce((sum, [, segEnd]) => sum + segEnd - 0, 0) > 0 ? Math.min(seconds, target) : end;
-            rangeLabel.textContent = `分镜均摊：检测到 ${points.length} 个切点，保留段 ${keepRanges.length} 个（应用后按区间拼接）`;
             timeline.__keepRanges = keepRanges;
-            render();
+            renderRanges(keepRanges);
+            rangeLabel.textContent = `分镜均摊：${points.length} 个切点 → 保留 ${keepRanges.length} 段共 ${keepRanges.reduce((sum, [s, e]) => sum + e - s, 0).toFixed(1)}s`;
         }
     });
     overlay.querySelector(".ariadne-trim-apply").addEventListener("click", async () => {

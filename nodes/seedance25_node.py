@@ -155,7 +155,14 @@ class AriadneSeedance25Video:
                 for path in media.images_to_files(images):
                     socket_assets.append(SeedanceAsset("image", role, path))
         if motion_video is not None:
-            socket_assets.append(SeedanceAsset("video", "motion", media.video_to_file(motion_video)))
+            motion_path = media.video_to_file(motion_video)
+            socket_assets.append(SeedanceAsset("video", "motion", motion_path))
+            try:
+                motion_seconds = media.probe_video(motion_path).get("seconds", 0.0)
+            except Exception:
+                motion_seconds = 0.0
+        else:
+            motion_seconds = 0.0
         if reference_audio is not None:
             socket_assets.append(SeedanceAsset("audio", "audio", media.audio_to_wav(reference_audio)))
         assets.extend(socket_assets)
@@ -170,6 +177,17 @@ class AriadneSeedance25Video:
         if errors:
             raise RuntimeError("Seedance 任务校验失败：\n- " + "\n- ".join(errors))
 
+        # 输入视频总时长（估价用：两渠道含视频输入均按（输入+输出）时长计费）。
+        def _tile_seconds(tile: dict) -> float:
+            try:
+                return max(0.0, float(tile.get("seconds") or 0.0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        input_seconds = motion_seconds + sum(
+            _tile_seconds(tile) for tile in tiles if tile.get("kind") == "video"
+        )
+
         # ---- 素材归一化 + 提交 ----
         if channel == "ark":
             api_key = config.resolve_ark_key()
@@ -181,18 +199,6 @@ class AriadneSeedance25Video:
             ]
             spec.assets = normalized
             request = compile_request(spec)
-            if motion_video is not None:
-                # 估价用输入视频时长（含视频输入按（输入+输出）计费）。
-                try:
-                    probe = media.probe_video(media.video_to_file(motion_video)) if not hasattr(motion_video, "_ariadne_seconds") else {}
-                except Exception:
-                    probe = {}
-                input_seconds = probe.get("seconds", 0.0) if probe else 0.0
-            else:
-                input_seconds = sum(
-                    media.probe_video(_resolve_input_path(t["name"], t.get("subfolder") or "ariadne")).get("seconds", 0.0)
-                    for t in tiles if t.get("kind") == "video"
-                )
             result = run_ark_seedance(spec, request["body"], api_key, poll_interval_seconds, timeout_seconds,
                                       progress=print)
         else:
