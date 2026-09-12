@@ -55,9 +55,22 @@ WEB_DIRECTORY = "./web/js"
 __version__ = "0.1.0"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY", "__version__"]
 
-try:
-    import routes as _ariadne_routes
+def _load_root(name: str):
+    """按唯一模块名加载包根模块（防 sys.modules["routes"] 等顶层名冲突/劫持）。"""
+    py = _SOURCE / f"{name}.py"
+    mod_name = f"{_SOURCE.name}__{name}"
+    spec = importlib.util.spec_from_file_location(mod_name, py)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return module
 
-    _ariadne_routes.register_routes()
-except Exception:  # noqa: BLE001 - 无 PromptServer 环境（单测/语法检查）跳过路由注册
-    pass
+
+try:
+    _load_root("routes").register_routes()
+except ImportError:
+    pass  # 无 PromptServer 环境（单测/语法检查）跳过路由注册
+except Exception as _routes_error:  # noqa: BLE001 - 路由注册失败必须留痕（端点静默 404 最难查）
+    import logging
+
+    logging.warning("[ComfyUI-Ariadne] 自有路由注册失败（/ariadne/* 不可用）：%s", _routes_error)

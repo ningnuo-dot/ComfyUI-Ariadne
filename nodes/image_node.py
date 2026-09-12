@@ -38,6 +38,13 @@ class AriadneKieImage:
     FUNCTION = "generate"
 
     @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # 视频生成是外部付费副作用：工作流含本节点并 Queue 时必须真实重跑，
+        # 严禁静默命中缓存回放旧成片（避坑手册 #1：NaN = 永远视为已更改；禁用优化是有意为之）。
+        return float("NaN")
+
+
+    @classmethod
     def INPUT_TYPES(cls):
         platforms = list(providers.PROVIDERS)
         return {

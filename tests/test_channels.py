@@ -36,6 +36,22 @@ class SeedanceKieChannelTests(unittest.TestCase):
         self.assertEqual(set(input_data) - {"prompt", "aspect_ratio", "resolution", "duration",
                                             "generate_audio", "output_format", "reference_image_urls"}, set())
 
+    def test_first_last_frames_not_numbered_parity_with_ark(self):
+        # P0 回归钉子：Kie 渠道首尾帧同样不占编号（与方舟 compile_references 对齐），
+        # 否则首尾帧任务里 @ImageN 与 reference_image_urls 错位、引用悬空照扣费。
+        s = self.spec(
+            task_type="first-last",
+            assets=[
+                SeedanceAsset("image", "first-frame", "f"),
+                SeedanceAsset("image", "last-frame", "l"),
+                SeedanceAsset("image", "character", "c1", label="@图片1"),
+            ],
+        )
+        text = compile_kie_prompt(s.prompt, s.assets)
+        self.assertIn("@Image1", text)
+        self.assertNotIn("@Image2", text)
+        self.assertNotIn("@Image3", text)
+
     def test_edit_and_extend_rejected(self):
         for task_type in ("edit", "extend"):
             with self.assertRaises(RuntimeError) as ctx:

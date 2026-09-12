@@ -44,8 +44,12 @@ def _resolve_input_path(name: str, subfolder: str = "ariadne") -> str:
     import folder_paths
 
     base = Path(folder_paths.get_input_directory()).resolve()
+    if subfolder and (os.path.isabs(subfolder) or ":" in subfolder or ".." in Path(subfolder).parts):
+        raise RuntimeError(f"素材子目录不合法：{subfolder}")
     target = (base / subfolder / name).resolve() if subfolder else (base / name).resolve()
-    if not str(target).startswith(str(base)):
+    norm_base = os.path.normcase(str(base))
+    norm_target = os.path.normcase(str(target))
+    if norm_target == norm_base or not norm_target.startswith(norm_base + os.sep):
         raise RuntimeError(f"素材路径越界：{name}")
     if not target.is_file():
         raise RuntimeError(f"素材文件不存在：{subfolder}/{name}（可能已被移动或删除，请重新导入）")
@@ -87,6 +91,13 @@ class AriadneSeedance25Video:
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True
     FUNCTION = "generate"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # 视频生成是外部付费副作用：工作流含本节点并 Queue 时必须真实重跑，
+        # 严禁静默命中缓存回放旧成片（避坑手册 #1：NaN = 永远视为已更改；禁用优化是有意为之）。
+        return float("NaN")
+
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -131,6 +142,11 @@ class AriadneSeedance25Video:
         channel = "kie" if str(channel).startswith("kie") else "ark"
         if task_type in ("edit", "extend"):
             duration = -1  # 官方约束：编辑/延长自适应时长
+        if channel == "kie":
+            if task_type in ("edit", "extend"):
+                raise RuntimeError("Kie 渠道暂不支持「视频编辑 / 视频延长」（未开通该模式）；请切回火山方舟渠道。")
+            if duration == -1 or int(duration) < 4 or int(duration) > 30:
+                raise RuntimeError("Kie 渠道生成时长必须为 4-30 秒的整数（不支持自适应）。")
 
         # ---- 组装素材序列：瓦片在前（保持面板顺序），插座接着编 ----
         assets: list[SeedanceAsset] = []
@@ -156,6 +172,7 @@ class AriadneSeedance25Video:
                     socket_assets.append(SeedanceAsset("image", role, path))
         if motion_video is not None:
             motion_path = media.video_to_file(motion_video)
+            validate_video_pixels(motion_path, "@视频(动作参考)")  # 上传 TOS 前拦截，省白传大文件
             socket_assets.append(SeedanceAsset("video", "motion", motion_path))
             try:
                 motion_seconds = media.probe_video(motion_path).get("seconds", 0.0)

@@ -36,6 +36,13 @@ class AriadneVeo31Video:
     FUNCTION = "generate"
 
     @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # 视频生成是外部付费副作用：工作流含本节点并 Queue 时必须真实重跑，
+        # 严禁静默命中缓存回放旧成片（避坑手册 #1：NaN = 永远视为已更改；禁用优化是有意为之）。
+        return float("NaN")
+
+
+    @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
@@ -67,12 +74,16 @@ class AriadneVeo31Video:
     ):
         task_type = str(task_type).split("(")[0].strip()
         model = _model_of(model)
+        if not str(prompt or '').strip():
+            raise RuntimeError("提示词不能为空。")
         api_key = config.resolve_kie_key()
 
         assets: list[dict] = []
         if task_type == "first-last":
             if first_frame is None:
                 raise RuntimeError("首尾帧模式需要连接 first_frame。")
+            if last_frame is None:
+                raise RuntimeError("首尾帧模式同时需要 last_frame（只连首帧请改用图生视频任务类型）。")
             assets.append({"url": kie_core.upload_to_kie("image", media.image_to_file(first_frame), api_key)})
             if last_frame is not None:
                 assets.append({"url": kie_core.upload_to_kie("image", media.image_to_file(last_frame), api_key)})
@@ -84,8 +95,17 @@ class AriadneVeo31Video:
                 raise RuntimeError(f"Veo 全能参考只支持 1-3 张参考图，当前 {len(paths)} 张。")
             for path in paths:
                 assets.append({"url": kie_core.upload_to_kie("image", path, api_key)})
-        elif task_type == "text" and (first_frame is not None or reference_images is not None):
-            raise RuntimeError("文生视频模式不能连接参考素材；请切换任务类型。")
+        elif task_type == "text":
+            if first_frame is not None or last_frame is not None or reference_images is not None:
+                raise RuntimeError("文生视频模式不能连接任何参考素材；请切换任务类型或移除连线。")
+        elif task_type == "extend":
+            if first_frame is not None or last_frame is not None or reference_images is not None:
+                raise RuntimeError("延长模式不接收参考素材（延长的是来源任务的成片）；请移除素材连线。")
+        # 反向组合：首尾帧误连参考图 / 全能参考误连首尾帧
+        if task_type == "first-last" and reference_images is not None:
+            raise RuntimeError("首尾帧模式不接收 reference_images；请改用全能参考模式。")
+        if task_type == "reference" and (first_frame is not None or last_frame is not None):
+            raise RuntimeError("全能参考模式不接收首帧/尾帧；请把参考图连到 reference_images。")
 
         spec = {
             "taskType": task_type, "prompt": prompt, "assets": assets, "model": model,

@@ -25,9 +25,12 @@ def _default_download_folder():
 def _json_of(value: str, field: str) -> list:
     try:
         parsed = json.loads(value or "[]")
-        return parsed if isinstance(parsed, list) else []
     except ValueError:
         raise RuntimeError(f"{field} 不是合法的 JSON 数组。")
+    if not isinstance(parsed, list):
+        # 非数组静默当空会把元素全丢、任务照发照扣费——必须显式报错。
+        raise RuntimeError(f"{field} 必须是 JSON 数组（[]），当前为 {type(parsed).__name__}。")
+    return parsed
 
 
 class AriadneKlingVideo:
@@ -38,6 +41,13 @@ class AriadneKlingVideo:
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True
     FUNCTION = "generate"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # 视频生成是外部付费副作用：工作流含本节点并 Queue 时必须真实重跑，
+        # 严禁静默命中缓存回放旧成片（避坑手册 #1：NaN = 永远视为已更改；禁用优化是有意为之）。
+        return float("NaN")
+
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -80,13 +90,18 @@ class AriadneKlingVideo:
 
         elements = _json_of(kling_elements, "kling_elements")
         # 元素里的本地文件路径（{"localPath": ...}）自动上传 Kie；公网 URL 直用。
+        video_exts = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi")
+        image_exts = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".heic")
         for element in elements:
             local = str(element.get("localPath") or "")
             if local:
-                if local.lower().endswith((".mp4", ".mov", ".webm")):
+                ext = local.lower().rsplit(".", 1)[-1]
+                if f".{ext}" in video_exts:
                     element["videoUrl"] = kie_core.upload_to_kie("video", local, api_key)
-                else:
+                elif f".{ext}" in image_exts:
                     element["imageUrls"] = [kie_core.upload_to_kie("image", local, api_key)]  # imageUrls 必须是数组
+                else:
+                    raise RuntimeError(f"元素素材 {local} 扩展名不在支持清单（图片 {image_exts} / 视频 {video_exts}）。")
         shots = _json_of(kling_shots, "kling_shots")
 
         spec = {
@@ -108,7 +123,7 @@ class AriadneKlingVideo:
 
         from comfy_api.latest import InputImpl
 
-        estimate = kling_core.estimate_kie(int(duration))
+        estimate = kling_core.estimate_kie(int(body["input"]["duration"]))  # 多镜头=Σ镜头，与实扣一致
         info = [
             f"可灵 Kling 3.0 完成（{task_type}）",
             f"任务ID: {result['taskId']}",

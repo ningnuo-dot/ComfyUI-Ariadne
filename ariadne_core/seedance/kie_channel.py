@@ -23,10 +23,16 @@ KIE_INPUT_FIELDS = {
 
 
 def compile_kie_prompt(prompt: str, assets: list) -> str:
-    """面板标签（@图片N）编译为 Kie 官方引用（@ImageN）；编号一致，仅前缀翻译 + 职责句。"""
+    """面板标签（@图片N）编译为 Kie 官方引用（@ImageN）；编号一致，仅前缀翻译 + 职责句。
+
+    计数器跳过 first/last 帧（与 compile_references 对齐）——首尾帧不在 reference_image_urls
+    里，计入编号会让 @ImageN 与职责句错位（引用悬空照扣费）。
+    """
     counters = {"image": 0, "video": 0, "audio": 0}
     text = prompt.strip()
     for asset in assets:
+        if asset.role in ("first-frame", "last-frame"):
+            continue
         if not asset.label:
             continue
         counters[asset.kind] += 1
