@@ -64,7 +64,7 @@ def compile_annotation_block(task_type: str, references: list[dict]) -> str:
     parts = []
     for asset in annotations:
         seconds = asset["timestamp_seconds"] or 0
-        moment = "开头" if seconds < 0.5 else f"第{round(seconds)}秒"
+        moment = "开头" if seconds < 0.5 else f"第{int(seconds + 0.5)}秒"  # 对齐 TS Math.round
         source = videos[0]["reference"] if videos else "@视频1"
         parts.append(f"{asset['reference']} 是 {source} {moment}的标注帧")
     return (

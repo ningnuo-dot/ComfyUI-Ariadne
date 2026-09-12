@@ -72,6 +72,16 @@ PROVIDERS: dict[str, dict] = {
         "extra": {},
         "credits_hint": "文档示例 ≈3 credits/张（待首跑核实）",
     },
+    "kie-gpt-image-2-5-sunburst": {
+        "key": "kie-gpt-image-2-5-sunburst", "channel": "kie", "vendor": "OpenAI",
+        "label": "OpenAI GPT Image 2.5 Sunburst",
+        "model": "gpt-image-2-5-sunburst-image-to-image", "ref_field": "input_urls", "ref_limit": 16,
+        "aspects": ["9:16", "16:9", "1:1", "3:4", "3:2", "2:3", "4:3", "21:9"],
+        "resolution_field": "resolution", "resolution_default": "2K",
+        "resolutions": [("1K", "1K"), ("2K", "2K"), ("4K", "4K")],
+        "extra": {},
+        "credits_hint": "文档示例 ≈3 credits/张（2026-09-11 实测纹理软糊，图生图暂不录用）",
+    },
     "kie-nano-banana-2": {
         "key": "kie-nano-banana-2", "channel": "kie", "vendor": "Google",
         "label": "Google Nano Banana 2",

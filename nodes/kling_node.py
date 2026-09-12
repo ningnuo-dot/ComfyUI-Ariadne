@@ -95,6 +95,7 @@ class AriadneKlingVideo:
             "duration": int(duration), "aspectRatio": aspect_ratio,
             "sound": bool(sound), "qualityMode": quality_mode,
         }
+        kling_core.validate_job(spec)
         body = kling_core.compile_request(spec)
         result = kling_core.run_kling(body, api_key, poll_interval_seconds=poll_interval_seconds,
                                       timeout_seconds=timeout_seconds, progress=print)

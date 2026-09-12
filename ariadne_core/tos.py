@@ -43,9 +43,13 @@ def host_of(settings: dict) -> str:
     return f"{settings['bucket']}.{settings['endpoint']}"
 
 
+def _encode_key(key: str) -> str:
+    """按段编码：与官方 SDK/encodeURIComponent 一致，保留 !~*'() 原样（Windows 重名 (1) 等常见）。"""
+    return "/".join(urllib.parse.quote(seg, safe="!~*'()") for seg in key.split("/"))
+
+
 def _virtual_host_url(settings: dict, key: str) -> str:
-    quoted = urllib.parse.quote(key)
-    return f"https://{host_of(settings)}/{quoted}"
+    return f"https://{host_of(settings)}/{_encode_key(key)}"
 
 
 def presign_get(settings: dict, key: str, now: datetime | None = None, expires_seconds: int = 7 * 24 * 3600) -> str:
@@ -67,7 +71,7 @@ def presign_get(settings: dict, key: str, now: datetime | None = None, expires_s
     ]
     canonical_query = "&".join(sorted(pairs, key=lambda item: item.split("=", 1)[0]))
     canonical_request = (
-        f"GET\n/{urllib.parse.quote(key)}\n{canonical_query}\nhost:{host}\n\nhost\n{empty_hash}"
+        f"GET\n/{_encode_key(key)}\n{canonical_query}\nhost:{host}\n\nhost\n{empty_hash}"
     )
     string_to_sign = f"{ALGORITHM}\n{amz_date}\n{scope}\n{hashlib.sha256(canonical_request.encode()).hexdigest()}"
     signature = hmac.new(
@@ -86,15 +90,13 @@ def upload_file(settings: dict, key: str, file_path: str, now: datetime | None =
     amz_date = _amz_date(now)
     date = _canonic_date(now)
     host = host_of(settings)
-    body_hash = hashlib.sha256()
     with open(file_path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            body_hash.update(chunk)
-    body_hash = body_hash.hexdigest()
+        body = handle.read()
+    body_hash = hashlib.sha256(body).hexdigest()
     canonical_headers = f"host:{host}\nx-tos-content-sha256:{body_hash}\nx-tos-date:{amz_date}\n"
     signed_headers = "host;x-tos-content-sha256;x-tos-date"
     canonical_request = (
-        f"PUT\n/{urllib.parse.quote(key)}\n\n{canonical_headers}\n{signed_headers}\n{body_hash}"
+        f"PUT\n/{_encode_key(key)}\n\n{canonical_headers}\n{signed_headers}\n{body_hash}"
     )
     scope = f"{date}/{settings['region']}/{SERVICE}/{IDENTIFIER}"
     string_to_sign = f"{ALGORITHM}\n{amz_date}\n{scope}\n{hashlib.sha256(canonical_request.encode()).hexdigest()}"
@@ -114,7 +116,7 @@ def upload_file(settings: dict, key: str, file_path: str, now: datetime | None =
             "x-tos-date": amz_date,
             "authorization": authorization,
         },
-        data=open(file_path, "rb").read(),
+        data=body,
         timeout=600,
     )
     if response.status_code not in (200, 201):

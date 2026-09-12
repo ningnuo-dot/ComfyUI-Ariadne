@@ -28,8 +28,9 @@ def load_config() -> dict:
         try:
             stored = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             for key, value in stored.items():
-                if key in ("tos", "optimizer") and isinstance(value, dict):
-                    config[key].update(value)
+                if key in ("tos", "optimizer"):
+                    if isinstance(value, dict):  # 手改坏档（字符串/数组）不覆盖默认结构
+                        config[key].update(value)
                 else:
                     config[key] = value
         except (ValueError, OSError):
@@ -38,7 +39,7 @@ def load_config() -> dict:
 
 
 def save_config(updates: dict) -> dict:
-    """合并写入；空串不覆盖已有值（防止前端漏传清空密钥）。返回更新后的完整配置。"""
+    """合并写入（临时文件 + os.replace 原子替换，防写一半损坏导致密钥丢失链）；空串不覆盖已有值。"""
     config = load_config()
     for key, value in (updates or {}).items():
         if key in ("tos", "optimizer") and isinstance(value, dict):
@@ -50,7 +51,9 @@ def save_config(updates: dict) -> dict:
             if str(value).strip() == "" and config.get(key):
                 continue
             config[key] = value
-    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path = CONFIG_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, CONFIG_PATH)
     return config
 
 
@@ -95,6 +98,6 @@ def resolve_kie_key() -> str:
 def tos_settings() -> dict | None:
     config = load_config()
     tos = config.get("tos") or {}
-    if not str(tos.get("accessKey") or "").strip():
+    if not isinstance(tos, dict) or not str(tos.get("accessKey") or "").strip():
         return None
     return tos

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import time
+import urllib.parse
 
 from . import kie
 from .http import request_json, request_bytes
@@ -37,9 +38,9 @@ VEO_CREDIT_RATES = {
 
 
 def estimate_veo_credits(task_type: str, model: str, resolution: str) -> int | float | None:
-    """当前组合的 credits；费率表未覆盖的组合返回 None（显示 credits --），不外推。"""
+    """当前组合的 credits；费率表未覆盖的组合/未知模型返回 None（显示 credits --），不外推。"""
     if task_type == "extend":
-        return VEO_CREDIT_RATES["extend"].get(_EXTEND_MODEL[model])
+        return VEO_CREDIT_RATES["extend"].get(_EXTEND_MODEL.get(model, ""))
     mode = {"text": "text", "first-last": "image", "reference": "reference"}.get(task_type)
     if not mode:
         return None
@@ -77,8 +78,8 @@ def compile_extend_request(spec: dict) -> dict:
     if not body["taskId"]:
         raise RuntimeError("延长任务必须填写来源任务 ID（须为 /api/v1/veo/generate 创建的原任务，且未做过 1080P 升级）。")
     seeds = spec.get("extendSeeds")
-    if isinstance(seeds, int) and 10000 <= seeds <= 99999:
-        body["seeds"] = seeds
+    if isinstance(seeds, (int, float)) and seeds == int(seeds):  # 数值即发（与 TS 一致），不静默丢弃
+        body["seeds"] = int(seeds)
     watermark = str(spec.get("watermark") or "").strip()
     if watermark:
         body["watermark"] = watermark
@@ -102,7 +103,8 @@ def run_veo(
     if response.status_code != 200:
         raise kie.translate_kie_error(response.status_code, payload, "创建 Veo 任务")
     # generate 返回 {code,msg,data:{taskId}}；extend 返回 {code,msg,data:{taskId,seeds,...}}。
-    task_id = str(((payload or {}).get("data") or {}).get("taskId") or "")
+    data = payload.get("data") if isinstance(payload, dict) else None
+    task_id = str((data or {}).get("taskId") or "")
     if not task_id:
         raise RuntimeError(f"Veo 未返回任务 ID：{str(payload)[:200]}")
 
@@ -110,11 +112,12 @@ def run_veo(
     while time.time() < deadline:
         time.sleep(poll_interval_seconds)
         response, payload = request_json(
-            "GET", f"{kie.KIE_BASE_URL}/api/v1/veo/record-info?taskId={task_id}", phase="查询 Veo 任务", headers=headers
+            "GET", f"{kie.KIE_BASE_URL}/api/v1/veo/record-info?taskId={urllib.parse.quote(task_id)}", phase="查询 Veo 任务", headers=headers
         )
         if response.status_code != 200:
             raise kie.translate_kie_error(response.status_code, payload, "查询 Veo 任务")
-        data = (payload or {}).get("data") or {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        data = data or {}
         flag = data.get("successFlag")
         if flag == 1:
             inner = data.get("response") or {}

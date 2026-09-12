@@ -29,11 +29,11 @@ def request_json(
 
 
 def request_bytes(method: str, url: str, *, phase: str, timeout: int = 600) -> bytes:
-    """下载二进制（成片落盘用）；失败抛中文错误。"""
+    """下载二进制（成片落盘用）；失败抛中文错误并释放连接。"""
     try:
-        response = requests.get(url, timeout=timeout, stream=True)
+        with requests.get(url, timeout=timeout, stream=True) as response:
+            if response.status_code != 200:
+                raise RuntimeError(f"{phase}下载失败（HTTP {response.status_code}）：{url}")
+            return response.content
     except requests.RequestException as error:
         raise RuntimeError(f"{phase}下载失败：{error}（URL: {url}）") from error
-    if response.status_code != 200:
-        raise RuntimeError(f"{phase}下载失败（HTTP {response.status_code}）：{url}")
-    return response.content

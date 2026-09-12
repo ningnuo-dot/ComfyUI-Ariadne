@@ -6,9 +6,9 @@ e7d40b79 的多图坍缩根因）；上传偶发 TLS 断开重试 3 次；input 
 """
 from __future__ import annotations
 
-import io
 import random
 import time
+import urllib.parse
 from pathlib import Path
 
 from .http import request_json
@@ -58,14 +58,15 @@ def upload_to_kie(kind: str, file_path: str, api_key: str) -> str:
 
 def translate_kie_error(status: int, payload: dict | None, phase: str, api_key_hint: str = "Ariadne 工作台") -> RuntimeError:
     """createTask/轮询错误翻译：把 Kie 校验拒绝翻成可操作的中文。"""
-    raw = str((payload or {}).get("message") or f"HTTP {status}")
-    if status == 401 or "api key" in raw.lower():
+    raw = str((payload or {}).get("message") or f"HTTP {status}") if isinstance(payload, dict) else f"HTTP {status}"
+    raw_lower = raw.lower()
+    if status == 401 or "api key" in raw_lower:
         return RuntimeError(f"Kie 密钥无效或未授权（{phase}）：请在 {api_key_hint} 里检查 Kie Key。原始信息：{raw}")
-    if "model name you specified is not supported" in raw.lower():
+    if "model name you specified is not supported" in raw_lower:
         return RuntimeError(f"Kie 不支持该模型标识（{phase}）。原始信息：{raw}")
-    if "model format is incorrect" in raw.lower():
+    if "model format is incorrect" in raw_lower:
         return RuntimeError(f"Kie 模型标识格式错误（{phase}）：标识最多两段 provider/模型。原始信息：{raw}")
-    if "Server exception" in raw:
+    if "server exception" in raw_lower:
         return RuntimeError(f"Kie 拒绝了请求中的未知参数（{phase}）：input 只允许官方页面列出的字段。原始信息：{raw}")
     return RuntimeError(f"Kie {phase}失败（HTTP {status}）：{raw}")
 
@@ -74,9 +75,15 @@ def create_task(body: dict, api_key: str, phase: str = "创建任务") -> str:
     """Kie 统一任务端点 POST /api/v1/jobs/createTask，返回 taskId。"""
     headers = {"content-type": "application/json", "authorization": f"Bearer {api_key.strip()}"}
     response, payload = request_json("POST", f"{KIE_BASE_URL}/api/v1/jobs/createTask", phase=phase, headers=headers, json_body=body)
-    if response.status_code != 200 or not ((payload or {}).get("data") or {}).get("taskId"):
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if response.status_code != 200 or not (data or {}).get("taskId"):
         raise translate_kie_error(response.status_code, payload, phase)
-    return str(payload["data"]["taskId"])
+    return str(data["taskId"])
+
+
+# 终态收敛（kling TS 契约枚举 waiting/queuing/generating/success/failed + 实测 fail/completed 变体）：
+_TERMINAL_BAD = ("fail", "failed", "error")
+_TERMINAL_OK = ("success", "completed")
 
 
 def poll_task(
@@ -94,25 +101,27 @@ def poll_task(
     while time.time() < deadline:
         time.sleep(poll_interval_seconds)
         response, payload = request_json(
-            "GET", f"{KIE_BASE_URL}/api/v1/jobs/recordInfo?taskId={task_id}", phase="查询任务", headers=headers
+            "GET", f"{KIE_BASE_URL}/api/v1/jobs/recordInfo?taskId={urllib.parse.quote(task_id)}", phase="查询任务", headers=headers
         )
         if response.status_code != 200:
             raise translate_kie_error(response.status_code, payload, "查询任务")
-        data = (payload or {}).get("data") or {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        data = data or {}
         state = str(data.get("state") or "unknown")
         if state != last_state:
             last_state = state
             if progress:
-                progress("生成完成，取回成片…" if state == "success" else f"生成中（{state}）…")
-        if state == "fail":
+                progress("生成完成，取回成片…" if state in _TERMINAL_OK else f"生成中（{state}）…")
+        if state in _TERMINAL_BAD:
             fail_msg = str(data.get("failMsg") or "任务失败")
             hint = ""
+            fail_lower = fail_msg.lower()
             for pattern, text in (fail_hints or {}).items():
-                if pattern in fail_msg:
+                if pattern.lower() in fail_lower:
                     hint = text
                     break
             raise RuntimeError(f"任务失败：{fail_msg}{('' if not hint else chr(10) + hint)}")
-        if state == "success":
+        if state in _TERMINAL_OK:
             urls = normalize_result_urls(str(data.get("resultJson") or ""))
             credits = data.get("remainedCredits")
             return {

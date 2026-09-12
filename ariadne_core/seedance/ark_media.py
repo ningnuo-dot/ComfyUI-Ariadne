@@ -11,6 +11,8 @@ import base64
 import mimetypes
 import os
 import re
+import time
+import uuid
 
 MAX_BYTES = {"image": 30 * 1024 * 1024, "audio": 15 * 1024 * 1024}
 MIN_VIDEO_PIXELS = 407696  # 官方实测拦截线（480×854 起可过）
@@ -64,6 +66,11 @@ def _data_url(path: str) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
+def _unique_tos_key(url: str) -> str:
+    """TOS 对象 key 带毫秒时间戳 + 随机段：同名素材互不覆盖（Kie 撞名多图坍缩事故的同型根因）。"""
+    return f"seedance/{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}-{os.path.basename(url)}"
+
+
 def to_ark_safe_url(url: str, kind: str, tos_settings: dict | None) -> str:
     """把素材地址归一化为方舟可接受形式；本地文件路径在服务端上传/内联。"""
     if not url:
@@ -81,13 +88,21 @@ def to_ark_safe_url(url: str, kind: str, tos_settings: dict | None) -> str:
             )
         from ..tos import upload_file
 
-        return upload_file(tos_settings, f"seedance/{os.path.basename(url)}", url)
+        return upload_file(tos_settings, _unique_tos_key(url), url)
     limit = MAX_BYTES.get(kind, MAX_BYTES["image"])
     label = {"audio": "音频"}.get(kind, "图片")
     if tos_settings and tos_settings.get("accessKey"):
         from ..tos import upload_file
 
-        return upload_file(tos_settings, f"seedance/{os.path.basename(url)}", url)
+        try:
+            return upload_file(tos_settings, _unique_tos_key(url), url)
+        except Exception as error:  # noqa: BLE001 - TOS 故障时小图/音频回退 Base64（与画布版一致）
+            if size <= limit:
+                return _data_url(url)
+            raise RuntimeError(
+                f"{label}素材上传 TOS 失败且 {size / 1024 / 1024:.1f}MB 超过内联上限 "
+                f"{limit // 1024 // 1024}MB，无法回退 Base64。原始错误：{error}"
+            ) from error
     if size > limit:
         raise RuntimeError(
             f"{label}素材 {size / 1024 / 1024:.1f}MB，超过内联上限 {limit // 1024 // 1024}MB。"

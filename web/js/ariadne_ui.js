@@ -22,13 +22,22 @@ function nodeType(node) {
     return node.comfyClass || node.constructor?.comfyClass || node.type;
 }
 
-// ---- CSS 注入（WEB_DIRECTORY 只自动加载 .js，其余动态注入） ----
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+// 瓦片身份键：name+subfolder（widget.value 每次读取都会重新 JSON.parse，对象身份过滤永假）。
+function tileKey(tile) {
+    return `${tile.subfolder || ""}/${tile.name}`;
+}
+
+// ---- CSS 注入（WEB_DIRECTORY 只自动加载 .js，其余动态注入；CSS 与本 js 同目录） ----
 function injectCss() {
     if (document.getElementById("ariadne-css")) return;
     const link = document.createElement("link");
     link.id = "ariadne-css";
     link.rel = "stylesheet";
-    link.href = new URL("../ariadne.css", import.meta.url).href;
+    link.href = new URL("./ariadne.css", import.meta.url).href;
     document.head.appendChild(link);
 }
 
@@ -119,10 +128,11 @@ function refreshTilesWidget(node) {
         remove.textContent = "×";
         remove.title = "移除素材";
         remove.addEventListener("click", () => {
-            const current = JSON.parse(widget.value || "[]").filter((item) => item !== tile);
+            const key = tileKey(tile);
+            const current = JSON.parse(widget.value || "[]").filter((item) => tileKey(item) !== key);
             widget.value = JSON.stringify(current);
-            refreshTilesWidget(node);
             refreshLabels(node);
+            refreshTilesWidget(node);
             node.setDirtyCanvas(true, true);
         });
         const edit = document.createElement("button");
@@ -133,7 +143,12 @@ function refreshTilesWidget(node) {
         edit.addEventListener("click", () => {
             const index = ROLE_OPTIONS.findIndex(([value]) => value === tile.role);
             tile.role = ROLE_OPTIONS[(index + 1) % ROLE_OPTIONS.length][0];
-            widget.value = JSON.stringify(tiles);
+            const current = JSON.parse(widget.value || "[]");
+            const key = tileKey(tile);
+            for (let i = 0; i < current.length; i++) {
+                if (tileKey(current[i]) === key) current[i].role = tile.role;
+            }
+            widget.value = JSON.stringify(current);
             refreshTilesWidget(node);
             refreshLabels(node);
         });
@@ -158,7 +173,7 @@ function refreshTilesWidget(node) {
 function syncTilesWidth(node) {
     const widget = node.widgets?.find((w) => w.name === "ariadne_assets");
     if (!widget?.element) return;
-    widget.element.style.width = `${Math.max(240, Number(node.size?.[0] || 0) - 22)}px`;
+    widget.element.style.width = `${Math.max(100, Number(node.size?.[0] || 0) - 22)}px`;
 }
 
 function makeTilesWidget(node) {
@@ -179,10 +194,15 @@ function makeTilesWidget(node) {
     fileInput.accept = "image/*,video/*,audio/*";
     fileInput.style.display = "none";
     fileInput.addEventListener("change", async () => {
-        for (const file of fileInput.files || []) {
-            await uploadTile(node, old, file);
+        add.disabled = true;
+        try {
+            for (const file of fileInput.files || []) {
+                await uploadTile(node, widget, file);
+            }
+        } finally {
+            add.disabled = false;
+            fileInput.value = "";
         }
-        fileInput.value = "";
     });
     add.addEventListener("click", () => fileInput.click());
     const summary = document.createElement("span");
@@ -215,28 +235,43 @@ function makeTilesWidget(node) {
     refreshTilesWidget(node);
 }
 
+function kindOfFile(file) {
+    const byType = file.type?.startsWith("video/") ? "video" : file.type?.startsWith("audio/") ? "audio" : file.type?.startsWith("image/") ? "image" : "";
+    if (byType) return byType;
+    // 浏览器对 .mkv/.flac 等可能给空 type：按扩展名兜底，避免误判成图片跳过视频预检。
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (["mp4", "mov", "webm", "mkv", "m4v", "avi"].includes(ext)) return "video";
+    if (["mp3", "wav", "m4a", "aac", "flac", "ogg"].includes(ext)) return "audio";
+    return "image";
+}
+
 async function uploadTile(node, widget, file) {
-    const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
+    const kind = kindOfFile(file);
     const defaultRole = kind === "video" ? "motion" : kind === "audio" ? "audio" : "character";
     addStatus(node, `上传 ${file.name} …`);
-    const form = new FormData();
-    form.append("file", file);
-    const response = await fetch(`/ariadne/upload?kind=${kind}&role=${defaultRole}`, { method: "POST", body: form });
-    const data = await response.json();
-    if (data.error) { addStatus(node, `上传失败：${data.error}`); return; }
-    const tiles = JSON.parse(widget.value || "[]");
-    tiles.push({
-        kind: data.kind, name: data.name, subfolder: data.subfolder, role: data.role || defaultRole,
-        seconds: data.seconds || 0, width: data.width || 0, height: data.height || 0,
-        pixelsOk: data.pixelsOk, probeError: data.probeError,
-    });
-    widget.value = JSON.stringify(tiles);
-    refreshTilesWidget(node);
-    refreshLabels(node);
-    if (kind === "video" && data.pixelsOk === false) {
-        addStatus(node, `${file.name} 像素 ${data.width}×${data.height} 低于官方 407696 下限，提交会被方舟拒绝（请放大后重导）`);
-    } else {
-        addStatus(node, `${file.name} 已添加`);
+    try {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch(`/ariadne/upload?kind=${kind}&role=${defaultRole}`, { method: "POST", body: form });
+        const data = await response.json();
+        if (data.error) { addStatus(node, `上传失败：${data.error}`); return; }
+        // 写回前重读（防上传期间其他改动被覆盖）。
+        const tiles = JSON.parse(widget.value || "[]");
+        tiles.push({
+            kind: data.kind || kind, name: data.name, subfolder: data.subfolder, role: data.role || defaultRole,
+            seconds: data.seconds || 0, width: data.width || 0, height: data.height || 0,
+            pixelsOk: data.pixelsOk, probeError: data.probeError,
+        });
+        widget.value = JSON.stringify(tiles);
+        refreshTilesWidget(node);
+        refreshLabels(node);
+        if ((data.kind || kind) === "video" && data.pixelsOk === false) {
+            addStatus(node, `${file.name} 像素 ${data.width}×${data.height} 低于官方 407696 下限，提交会被方舟拒绝（请放大后重导）`);
+        } else {
+            addStatus(node, `${file.name} 已添加`);
+        }
+    } catch (error) {
+        addStatus(node, `上传失败：${error?.message || error}`);
     }
 }
 
@@ -247,6 +282,13 @@ function addStatus(node, text) {
 }
 
 // ---- 胶囊提示词编辑器：@ 唤出素材选单，@标签原子化 ----
+// 每节点的瓦片缓存（WeakMap，避免多 Seedance 节点互相污染——估价/菜单/编号都用自己节点的素材）。
+const TILES_BY_NODE = new WeakMap();
+
+function tilesOf(node) {
+    return TILES_BY_NODE.get(node) || [];
+}
+
 function makeCapsulePrompt(node) {
     const old = node.widgets?.find((w) => w.name === "prompt");
     if (!old || old.type === "ariadne_prompt") return;
@@ -256,10 +298,16 @@ function makeCapsulePrompt(node) {
     editor.spellcheck = false;
     editor.dataset.placeholder = "描述画面；@ 唤出素材选单，或把下方瓦片拖进来";
 
+    let lastValue = String(old.value || "");  // blur 空读保护的对照值（old 已移除，读不到新值）
+    const render = (text) => renderPrompt(editor, String(text ?? ""), tilesOf(node));
+
     const widget = node.addDOMWidget("prompt", "ariadne_prompt", editor, {
         hideOnZoom: true, serialize: true,
         getValue: () => editor.innerText.replace(/\u00a0/g, " "),
-        setValue: (value) => { renderPrompt(editor, String(value || "")); },
+        setValue: (value) => {
+            lastValue = String(value || "");
+            render(lastValue);
+        },
     });
     widget.serialize = true;
     widget.serializeValue = () => editor.innerText.replace(/\u00a0/g, " ");
@@ -267,18 +315,19 @@ function makeCapsulePrompt(node) {
     const originalCallback = old.callback;
     widget.callback = originalCallback;
     editor.addEventListener("input", () => {
-        widget.callback?.(widget.getValue());
+        lastValue = widget.getValue();
+        widget.callback?.(lastValue);
         node.setDirtyCanvas(true, true);
     });
     editor.addEventListener("keydown", (event) => {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;  // 放行全局快捷键（Ctrl+Enter 队列等）
         if (event.key === "@") setTimeout(() => openAssetMenu(node, editor), 0);
         event.stopPropagation();
     });
     editor.addEventListener("blur", () => {
-        // 空读保护（画布版 0.1.1 提示词丢失事故教训）：编辑器空而元数据有内容时不回写空串。
-        const stored = old.value || "";
+        // 空读保护（画布版 0.1.1 提示词丢失事故教训）：编辑器空而最近值非空时回滚重绘，不写空串。
         const current = widget.getValue();
-        if (!current.trim() && stored.trim()) renderPrompt(editor, stored);
+        if (!current.trim() && lastValue.trim()) render(lastValue);
     });
 
     const index = node.widgets.indexOf(old);
@@ -287,12 +336,11 @@ function makeCapsulePrompt(node) {
     const appended = node.widgets.indexOf(widget);
     if (appended >= 0) node.widgets.splice(appended, 1);
     node.widgets.splice(index, 0, widget);
-    renderPrompt(editor, String(old.value || ""));
+    render(lastValue);
 }
 
-function renderPrompt(editor, text) {
+function renderPrompt(editor, text, tiles = []) {
     // 已知标签优先（长标签在前，图片1 不抢 图片10 —— 画布版 prompt-tokens.ts 教训）。
-    const tiles = currentTiles();
     const labels = tiles.map((tile) => tile.label).filter(Boolean).sort((a, b) => b.length - a.length);
     const known = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     const pattern = new RegExp(`(@(?:${known ? known + "|" : ""}[^\\s@，。！？；：、]+))`, "g");
@@ -312,27 +360,40 @@ function renderPrompt(editor, text) {
     }
 }
 
-let currentTilesRef = { tiles: [] };
-function currentTiles() {
-    return currentTilesRef.tiles;
+// 瓦片增删后编号前移：按映射重写编辑器里的旧标签，防止 @图片2 指向别的素材。
+function rewritePromptLabels(node, mapping) {
+    const widget = node.widgets?.find((w) => w.name === "prompt");
+    if (!widget || widget.type !== "ariadne_prompt" || !Object.keys(mapping).length) return;
+    let text = widget.getValue();
+    const entries = Object.entries(mapping).sort(([a], [b]) => b.length - a.length);
+    for (const [from, to] of entries) {
+        if (from !== to) text = text.split(from).join(to);
+    }
+    widget.setValue(text);
+    widget.callback?.(text);
 }
 
 function refreshLabels(node) {
     const widget = node.widgets?.find((w) => w.name === "ariadne_assets");
     if (!widget) return;
+    const previous = TILES_BY_NODE.get(node) || [];
     const tiles = JSON.parse(widget.value || "[]");
     const counters = { image: 0, video: 0, audio: 0 };
+    const mapping = {};
     for (const tile of tiles) {
         counters[tile.kind] += 1;
-        tile.label = `@${KIND_LABEL[tile.kind]}${counters[tile.kind]}`;
+        const label = `@${KIND_LABEL[tile.kind]}${counters[tile.kind]}`;
+        const oldTile = previous.find((item) => tileKey(item) === tileKey(tile));
+        if (oldTile?.label && oldTile.label !== label) mapping[oldTile.label] = label;
+        tile.label = label;
     }
     widget.value = JSON.stringify(tiles);
-    currentTilesRef.tiles = tiles;
+    TILES_BY_NODE.set(node, tiles);
+    rewritePromptLabels(node, mapping);
 }
 
 function openAssetMenu(node, editor) {
-    const tiles = currentTiles();
-    const existing = editor.innerText;
+    const tiles = tilesOf(node);
     const menu = document.createElement("div");
     menu.className = "ariadne-menu";
     if (!tiles.length) {
@@ -345,16 +406,17 @@ function openAssetMenu(node, editor) {
         item.textContent = `${tile.label}（${ROLE_LABEL[tile.role] || tile.role} · ${tile.name}）`;
         item.addEventListener("click", () => {
             insertAtCursor(editor, tile.label);
-            menu.remove();
+            dismissNow();
         });
         menu.appendChild(item);
     }
     positionMenu(editor, menu);
     const dismiss = (event) => {
-        if (!menu.contains(event.target)) {
-            menu.remove();
-            document.removeEventListener("mousedown", dismiss);
-        }
+        if (!menu.contains(event.target)) dismissNow();
+    };
+    const dismissNow = () => {
+        menu.remove();
+        document.removeEventListener("mousedown", dismiss);
     };
     setTimeout(() => document.addEventListener("mousedown", dismiss), 0);
 }
@@ -364,7 +426,16 @@ function insertAtCursor(editor, text) {
     const selection = window.getSelection();
     if (!selection.rangeCount) return;
     const range = selection.getRangeAt(0);
-    range.deleteContents();
+    if (!editor.contains(range.startContainer)) return;  // 焦点漂移时不插进无关节点
+    // 菜单由输入 @ 唤出：光标前已是 @ 时先删掉，避免产生 @@视频1 双前缀。
+    if (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+        const before = range.startContainer.textContent[range.startOffset - 1];
+        if (before === "@") {
+            range.setStart(range.startContainer, range.startOffset - 1);
+            range.deleteContents();
+        }
+    }
+    range.collapse(true);
     range.insertNode(document.createTextNode(text));
     range.collapse(false);
     editor.dispatchEvent(new Event("input", { bubbles: true }));
@@ -384,10 +455,9 @@ function openTrimDialog(node, widget, tile) {
     overlay.className = "ariadne-overlay";
     const url = `/view?filename=${encodeURIComponent(tile.name)}&subfolder=${encodeURIComponent(tile.subfolder)}&type=input`;
     const seconds = Number(tile.seconds || 0);
-    const safeName = String(tile.name).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     overlay.innerHTML = `
         <div class="ariadne-dialog">
-            <div class="ariadne-dialog-title">✂ 裁剪 · ${safeName}（源 ${seconds.toFixed(1)}s）</div>
+            <div class="ariadne-dialog-title">✂ 裁剪 · ${escapeHtml(tile.name)}（源 ${seconds.toFixed(1)}s）</div>
             <video src="${url}" class="ariadne-trim-video" muted loop autoplay></video>
             <div class="ariadne-trim-timeline"><div class="ariadne-trim-keep"></div>
                 <div class="ariadne-trim-handle ariadne-trim-start"></div>
@@ -425,6 +495,7 @@ function openTrimDialog(node, widget, tile) {
     const drag = (isStart) => (event) => {
         event.preventDefault();
         const move = (moveEvent) => {
+            timeline.__keepRanges = null;  // 手动拖动后退出分镜模式，防止 apply 用旧区间
             const rect = timeline.getBoundingClientRect();
             const value = Math.max(0, Math.min(seconds, ((moveEvent.clientX - rect.left) / rect.width) * seconds));
             if (isStart) start = Math.min(value, end - 0.5);
@@ -456,11 +527,12 @@ function openTrimDialog(node, widget, tile) {
             timeline.appendChild(seg);
         }
     };
+    const clearSegs = () => timeline.querySelectorAll(".ariadne-trim-keep-seg").forEach((seg) => seg.remove());
     modeSelect.addEventListener("change", async () => {
         const mode = modeSelect.value;
+        clearSegs();  // 任何模式切换先清多区间段残留
         if (mode === "manual") {
             timeline.__keepRanges = null;
-            timeline.querySelectorAll(".ariadne-trim-keep-seg").forEach((node) => node.remove());
             render();
             return;
         }
@@ -474,11 +546,17 @@ function openTrimDialog(node, widget, tile) {
         }
         if (mode === "story") {
             rangeLabel.textContent = "检测切点中…";
-            const response = await fetch("/ariadne/trim", {
-                method: "POST", headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name: tile.name, subfolder: tile.subfolder, detect: true }),
-            });
-            const data = await response.json();
+            let data;
+            try {
+                const response = await fetch("/ariadne/trim", {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ name: tile.name, subfolder: tile.subfolder, detect: true }),
+                });
+                data = await response.json();
+            } catch (error) {
+                rangeLabel.textContent = `切点检测失败：${error?.message || error}`;
+                return;
+            }
             const points = (data.cutPoints || []).filter((point) => point > 0 && point < seconds);
             if (!points.length) {
                 timeline.__keepRanges = null;
@@ -505,25 +583,37 @@ function openTrimDialog(node, widget, tile) {
             rangeLabel.textContent = `分镜均摊：${points.length} 个切点 → 保留 ${keepRanges.length} 段共 ${keepRanges.reduce((sum, [s, e]) => sum + e - s, 0).toFixed(1)}s`;
         }
     });
-    overlay.querySelector(".ariadne-trim-apply").addEventListener("click", async () => {
-        const ranges = timeline.__keepRanges || [[start, end]];
-        rangeLabel.textContent = "裁剪中（ffmpeg 转码，秒级）…";
-        const response = await fetch("/ariadne/trim", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: tile.name, subfolder: tile.subfolder, ranges, role: tile.role }),
-        });
-        const data = await response.json();
-        if (data.error) { rangeLabel.textContent = `裁剪失败：${data.error}`; return; }
-        const tiles = JSON.parse(widget.value || "[]").filter((item) => item !== tile);
-        tiles.push({
-            kind: "video", name: data.name, subfolder: data.subfolder, role: data.role || tile.role,
-            seconds: data.seconds, width: data.width, height: data.height, pixelsOk: data.pixelsOk, trimmed: true,
-        });
-        widget.value = JSON.stringify(tiles);
-        refreshTilesWidget(node);
-        refreshLabels(node);
-        overlay.remove();
-        addStatus(node, `已裁 1 段：${(ranges.reduce((sum, [s, e]) => sum + (e - s), 0)).toFixed(1)}s → ${data.seconds}s`);
+    const applyButton = overlay.querySelector(".ariadne-trim-apply");
+    applyButton.addEventListener("click", async () => {
+        applyButton.disabled = true;  // 防连点产出重复瓦片
+        try {
+            const ranges = timeline.__keepRanges || [[start, end]];
+            rangeLabel.textContent = "裁剪中（ffmpeg 转码，秒级）…";
+            let data;
+            try {
+                const response = await fetch("/ariadne/trim", {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ name: tile.name, subfolder: tile.subfolder, ranges, role: tile.role }),
+                });
+                data = await response.json();
+            } catch (error) {
+                rangeLabel.textContent = `裁剪失败：${error?.message || error}`;
+                return;
+            }
+            if (data.error) { rangeLabel.textContent = `裁剪失败：${data.error}`; return; }
+            const tiles = JSON.parse(widget.value || "[]").filter((item) => tileKey(item) !== tileKey(tile));
+            tiles.push({
+                kind: "video", name: data.name, subfolder: data.subfolder, role: data.role || tile.role,
+                seconds: data.seconds, width: data.width, height: data.height, pixelsOk: data.pixelsOk, trimmed: true,
+            });
+            widget.value = JSON.stringify(tiles);
+            refreshTilesWidget(node);
+            refreshLabels(node);
+            overlay.remove();
+            addStatus(node, `已裁 1 段：${(ranges.reduce((sum, [s, e]) => sum + (e - s), 0)).toFixed(1)}s → ${data.seconds}s`);
+        } finally {
+            applyButton.disabled = false;
+        }
     });
 }
 
@@ -558,11 +648,15 @@ function makeEstimateWidget(node) {
     return widget;
 }
 
+let estimateSeq = 0;
+
 async function refreshEstimate(node, note) {
     const value = (name) => node.widgets?.find((w) => w.name === name)?.value;
     const channel = String(value("channel") || "ark").startsWith("kie") ? "kie" : "ark";
-    const includesVideo = !!(node.getInputNode("motion_video")) || currentTiles().some((tile) => tile.kind === "video");
-    let inputSeconds = currentTiles().filter((tile) => tile.kind === "video").reduce((sum, tile) => sum + Number(tile.seconds || 0), 0);
+    const tiles = tilesOf(node);  // 用本节点的瓦片（WeakMap 隔离，不再用全局单例）
+    const includesVideo = !!(node.getInputNode("motion_video")) || tiles.some((tile) => tile.kind === "video");
+    const inputSeconds = tiles.filter((tile) => tile.kind === "video").reduce((sum, tile) => sum + Number(tile.seconds || 0), 0);
+    const seq = ++estimateSeq;
     try {
         const response = await fetch("/ariadne/estimate", {
             method: "POST", headers: { "content-type": "application/json" },
@@ -572,13 +666,14 @@ async function refreshEstimate(node, note) {
             }),
         });
         const data = await response.json();
+        if (seq !== estimateSeq) return;  // 快速改参数时丢弃过期响应
         const estimate = data.estimate;
         if (!estimate) { note.textContent = "费用预估: --（该档位/自适应时长无法估算，以账单为准）"; return; }
         note.textContent = estimate.unit === "credits"
             ? `费用预估: ≈${estimate.credits} credits ≈ ¥${estimate.cny}（Kie，输入时长未计全时偏低；以账单为准）`
             : `费用预估: ≈¥${estimate.cny}（方舟刊例；以账单为准）`;
     } catch {
-        note.textContent = "费用预估: 不可用";
+        if (seq === estimateSeq) note.textContent = "费用预估: 不可用";
     }
 }
 
@@ -592,8 +687,8 @@ function upgradeNode(node) {
     safe("标签", () => applyChineseLabels(node));
     safe("序列化", () => installCompactSerialization(node));
     if (type === SEEDANCE_TYPE) {
-        safe("标签刷新", () => refreshLabels(node));
         safe("瓦片", () => makeTilesWidget(node));
+        safe("标签刷新", () => refreshLabels(node));  // 在瓦片 widget 建好后刷新（不依赖闭包机制）
         safe("胶囊提示词", () => makeCapsulePrompt(node));
         safe("估价", () => makeEstimateWidget(node));
     }
@@ -640,17 +735,25 @@ function registerSidebarTab() {
             const form = el.querySelector(".ariadne-workbench");
             const log = el.querySelector("#ariadne-log");
             const say = (text) => { log.textContent = text; };
-            fetch("/ariadne/config").then((response) => response.json()).then((data) => {
-                form.querySelector("[name=ark_api_key]").placeholder = data.ark_api_key || "未配置";
-                form.querySelector("[name=kie_api_key]").placeholder = data.kie_api_key || "未配置";
-                form.querySelector("[name=tos_accessKey]").placeholder = data.tos?.accessKey || "未配置";
-                form.querySelector("[name=tos_bucket]").value = data.tos?.bucket || "";
-                form.querySelector("[name=tos_region]").value = data.tos?.region || "";
-                form.querySelector("[name=tos_endpoint]").value = data.tos?.endpoint || "";
-                form.querySelector("[name=opt_base_url]").value = data.optimizer?.base_url || "";
-                form.querySelector("[name=opt_model]").value = data.optimizer?.model || "";
-                form.querySelector("[name=opt_api_key]").placeholder = data.optimizer?.api_key || "未配置";
-            }).catch(() => {});
+            (async () => {
+                try {
+                    const response = await fetch("/ariadne/config");
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    // 已配置的密钥只显示状态不回显字符（脱敏边界）。
+                    form.querySelector("[name=ark_api_key]").placeholder = data.ark_api_key ? "已配置（留空不修改）" : "未配置";
+                    form.querySelector("[name=kie_api_key]").placeholder = data.kie_api_key ? "已配置（留空不修改）" : "未配置";
+                    form.querySelector("[name=tos_accessKey]").placeholder = data.tos?.accessKey ? "已配置（留空不修改）" : "未配置";
+                    form.querySelector("[name=tos_bucket]").value = data.tos?.bucket || "";
+                    form.querySelector("[name=tos_region]").value = data.tos?.region || "";
+                    form.querySelector("[name=tos_endpoint]").value = data.tos?.endpoint || "";
+                    form.querySelector("[name=opt_base_url]").value = data.optimizer?.base_url || "";
+                    form.querySelector("[name=opt_model]").value = data.optimizer?.model || "";
+                    form.querySelector("[name=opt_api_key]").placeholder = data.optimizer?.api_key ? "已配置（留空不修改）" : "未配置";
+                } catch (error) {
+                    say(`读取配置失败（节点包路由未加载？）：${error?.message || error}`);
+                }
+            })();
             el.querySelector("#ariadne-save").addEventListener("click", async () => {
                 const payload = {
                     tos: {
@@ -670,17 +773,26 @@ function registerSidebarTab() {
                 const kieKey = form.querySelector("[name=kie_api_key]").value;
                 if (arkKey) payload.ark_api_key = arkKey;
                 if (kieKey) payload.kie_api_key = kieKey;
-                const response = await fetch("/ariadne/config", {
-                    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
-                });
-                const data = await response.json();
-                say(data.error ? `保存失败：${data.error}` : "配置已保存（config.local.json，不入 Git）");
+                try {
+                    const response = await fetch("/ariadne/config", {
+                        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    say(data.error ? `保存失败：${data.error}` : "配置已保存（config.local.json，不入 Git）");
+                } catch (error) {
+                    say(`保存失败：${error?.message || error}`);
+                }
             });
             el.querySelector("#ariadne-tos-test").addEventListener("click", async () => {
                 say("TOS 试传中…");
-                const response = await fetch("/ariadne/tos_test", { method: "POST" });
-                const data = await response.json();
-                say(data.ok ? `试传成功：${data.urlHead}…` : `试传失败：${data.error}`);
+                try {
+                    const response = await fetch("/ariadne/tos_test", { method: "POST" });
+                    const data = await response.json();
+                    say(data.ok ? `试传成功：${data.urlHead}…` : `试传失败：${data.error}`);
+                } catch (error) {
+                    say(`试传失败：${error?.message || error}`);
+                }
             });
         },
     });

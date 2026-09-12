@@ -28,6 +28,39 @@ def estimate_kie(seconds: float) -> dict:
     return {"usd": usd, "credits": round(KIE_USD_PER_SECOND * KIE_CREDITS_PER_USD * seconds), "cny": round(usd * USD_TO_CNY, 2)}
 
 
+def validate_job(spec: dict) -> None:
+    """可灵任务校验（画布 validate.ts 关键层移植）：元素完整性、引用兑现、时长/画幅约束。"""
+    prompt = str(spec.get("prompt") or "")
+    elements = spec.get("elements") or []
+    names: list[str] = []
+    for element in elements:
+        name = str(element.get("name") or "").strip()
+        image_urls = [url for url in element.get("imageUrls") or [] if str(url).strip()]
+        video_url = str(element.get("videoUrl") or "").strip()
+        if not name:
+            raise RuntimeError("角色元素缺少 name（提示词用 @名字 引用元素）。")
+        if "@" in name:
+            raise RuntimeError(f"元素名「{name}」不能包含 @（引用语法保留字）。")
+        if name in names:
+            raise RuntimeError(f"元素名「{name}」重复。")
+        names.append(name)
+        if image_urls:
+            if video_url:
+                raise RuntimeError(f"元素「{name}」图片与视频二选一。")
+            if not 2 <= len(image_urls) <= 4:
+                raise RuntimeError(f"图片元素「{name}」需要 2-4 张图（当前 {len(image_urls)} 张）。")
+        elif not video_url:
+            raise RuntimeError(f"元素「{name}」既无图片也无视频（图片元素 2-4 张，或视频元素 1 段）。")
+        if spec.get("taskType") != "multi-shot" and f"@{name}" not in prompt:
+            raise RuntimeError(f"元素「{name}」未在提示词中用 @{name} 引用（未被引用的元素会被丢弃）。")
+    shots = spec.get("shots") or []
+    for shot in shots:
+        if not 1 <= int(shot.get("duration", 0)) <= 12:
+            raise RuntimeError("多镜头每个镜头时长须为 1-12 秒。")
+        if not str(shot.get("prompt") or "").strip():
+            raise RuntimeError("多镜头分镜缺少镜头提示词。")
+
+
 def compile_request(spec: dict) -> dict:
     """spec = {taskType, prompt, firstFrameUrl?, lastFrameUrl?, elements[], shots[], duration,
     aspectRatio?, sound, qualityMode}。编译只做类型收敛与字段裁剪：空值字段不发送。"""

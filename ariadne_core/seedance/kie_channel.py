@@ -107,7 +107,7 @@ def run_kie_seedance(
     video_url = next((url for url in urls if re.search(r"\.(mp4|mov)(\?|$)", url, re.IGNORECASE)), "")
     if not video_url:
         raise RuntimeError(f"Seedance（Kie）任务成功但未返回视频地址：{result['resultUrls'][:2]}")
-    last_frame = urls[1] if spec.return_last_frame and len(urls) > 1 and urls[1] != video_url else None
+    last_frame = next((u for u in urls if u != video_url), None) if spec.return_last_frame else None
     return {
         "taskId": task_id,
         "videoUrl": video_url,

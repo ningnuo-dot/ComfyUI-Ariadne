@@ -41,8 +41,13 @@ def _kind_type(item: dict | None) -> str:
 
 
 def read_ark_error(response, payload, request_body: dict) -> RuntimeError:
-    """把方舟错误翻译成可操作的中文（素材编号 + 官方限制 + 替代方案）。"""
-    detail = str((payload or {}).get("message") or ((payload or {}).get("error") or {}).get("message") or response.text[:300] or "未知错误")
+    """把方舟错误翻译成可操作的中文（素材编号 + 官方限制 + 替代方案）。error 为字符串/非 dict 均安全。"""
+    if not isinstance(payload, dict):
+        payload = {}
+    error = payload.get("error")
+    error_message = error.get("message") if isinstance(error, dict) else str(error) if error else ""
+    error_code = error.get("code") if isinstance(error, dict) else ""
+    detail = str(payload.get("message") or error_message or response.text[:300] or "未知错误")
     index = _POSITION.search(detail)
     content = request_body.get("content", [])
     position = int(index.group(1)) if index else -1
@@ -134,12 +139,18 @@ def run_ark_seedance(
             if progress:
                 progress(f"生成中（{status}）…")
         output = (payload or {}).get("output") or {}
-        video_url = str(output.get("video_url") or output.get("url") or "")
+        video_url = str(
+            output.get("video_url") or output.get("url")
+            or (payload or {}).get("video_url") or (payload or {}).get("url") or ""
+        )
         if video_url and _TERMINAL_OK.search(status):
             return {"taskId": task_id, "videoUrl": video_url}
         if _TERMINAL_BAD.search(status):
             error = (payload or {}).get("error")
-            message = error.get("message") if isinstance(error, dict) else str(error or f"任务{status}")
+            if isinstance(error, dict):
+                message = error.get("message") or f"任务{status}"
+            else:
+                message = str(error) if error else f"任务{status}"
             raise RuntimeError(str(message))
         time.sleep(poll_interval_seconds)
     raise RuntimeError("Seedance 任务等待超时（30 分钟）")
