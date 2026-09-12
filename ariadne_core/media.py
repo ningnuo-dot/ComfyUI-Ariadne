@@ -170,3 +170,38 @@ def trim_video(path: str, ranges: list[list[float]], out_dir: str, base_name: st
     if result.returncode != 0 or not output.exists():
         raise RuntimeError(f"ffmpeg 裁剪失败：{(result.stderr or '')[-400:]}")
     return str(output)
+
+
+def extract_video_frames(path: str, start: float, end: float, count: int, out_dir: str) -> list[str]:
+    """按时间范围均匀抽 count 帧（一瞬入画的多帧参考来源）；返回 PNG 路径列表。"""
+    count = max(1, min(int(count), 8))
+    if end <= start:
+        raise RuntimeError("抽帧结束时间必须大于开始时间。")
+    info = probe_video(path)
+    duration = info["seconds"] or 0
+    end = min(end, duration) if duration else end
+    if end <= start:
+        raise RuntimeError(f"抽帧范围超出视频时长（源 {duration}s）。")
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    step = (end - start) / count
+    # 取每段中点时刻，避免首帧黑场
+    stamps = [start + step * (index + 0.5) for index in range(count)]
+    paths: list[str] = []
+    stem = Path(path).stem[:24]
+    for index, stamp in enumerate(stamps):
+        target = out / f"ariadne-frame-{stem}-{uuid.uuid4().hex[:6]}-{index}.png"
+        command = [
+            "ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "error",
+            "-ss", f"{stamp:.3f}", "-i", path, "-frames:v", "1", str(target),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        except FileNotFoundError as error:
+            raise RuntimeError("ffmpeg 不可用：请确认已安装并加入 PATH。") from error
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"ffmpeg 抽帧超时（{stamp:.1f}s）。") from error
+        if result.returncode != 0 or not target.exists():
+            raise RuntimeError(f"ffmpeg 抽帧失败：{(result.stderr or '')[-300:]}")
+        paths.append(str(target))
+    return paths

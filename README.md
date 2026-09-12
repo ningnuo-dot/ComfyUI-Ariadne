@@ -8,6 +8,9 @@ Ariadne 视频家族的 ComfyUI 自定义节点包——把无限画布（Daedal
 | Ariadne · Veo 3.1 视频生成 | Kie | 文生 / 首尾帧 / 全能参考 / 延长 |
 | Ariadne · 可灵 Kling 3.0 视频生成 | Kie | 文生 / 首帧 / 首尾帧 / 全能参考（@元素名）/ 多镜头 |
 | Ariadne · Kie 图生图 | Kie | nano-banana-pro（默认）/ seedream-5-pro / grok-imagine-2 / gpt-image-2 / nano-banana-2 |
+| Ariadne · Omni 1.1 参考素材视频 | Kie | 人物/场景/动作/固定角色四路输入（固定角色ID 可连 ComfyUI-Kie 的角色节点） |
+| Ariadne · Omni 1.1 首尾帧过渡 | Kie | 首帧必填、尾帧可选 |
+| Ariadne · 一瞬入画 | Kie | 视频/多图 → 高保真场景图（gpt-image-2，自动抽帧 + 保真提示词模板） |
 
 ## 为什么不是重复造轮子（2026-09-12 全网调研结论）
 

@@ -7,7 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-EXPECTED_NODES = {"AriadneSeedance25Video", "AriadneVeo31Video", "AriadneKlingVideo", "AriadneKieImage"}
+EXPECTED_NODES = {
+    "AriadneSeedance25Video", "AriadneVeo31Video", "AriadneKlingVideo", "AriadneKieImage",
+    "AriadneOmniVideo", "AriadneOmniFirstLastFrame", "AriadneInstantPainting",
+}
 
 
 def _load_package():
@@ -29,7 +32,7 @@ class RegistrationTests(unittest.TestCase):
             self.assertIn(name, package.NODE_DISPLAY_NAME_MAPPINGS)
             self.assertIn("Ariadne", package.NODE_DISPLAY_NAME_MAPPINGS[name])
         self.assertEqual(package.WEB_DIRECTORY, "./web/js")
-        self.assertEqual(package.__version__, "0.1.0")
+        self.assertEqual(package.__version__, "0.2.0")
 
     def test_input_types_contract(self):
         package = _load_package()
