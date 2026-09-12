@@ -1,0 +1,12 @@
+# 密钥与本地配置
+config.local.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 测试与运行产物
+output/
+input/
+*.log

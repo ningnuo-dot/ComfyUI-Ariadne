@@ -1,0 +1,16 @@
+{
+  "ark_api_key": "火山方舟 API Key（Seedance 方舟渠道）",
+  "kie_api_key": "Kie API Key（Veo/可灵/图生图/Seedance Kie 渠道）",
+  "tos": {
+    "accessKey": "TOS AccessKey（方舟渠道参考视频必需）",
+    "secretKey": "TOS SecretKey",
+    "bucket": "huoshan-yinpin",
+    "region": "cn-shanghai",
+    "endpoint": "tos-cn-shanghai.volces.com"
+  },
+  "optimizer": {
+    "base_url": "https://api.deepseek.com",
+    "model": "模型 ID（OpenAI 兼容站点）",
+    "api_key": "优化器 Key"
+  }
+}
