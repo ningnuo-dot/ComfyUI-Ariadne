@@ -57,6 +57,8 @@ python -m unittest discover -s tests -v   # 41 项：契约编译/校验/估价/
 
 ## 边界与待验证
 
+- **更新本包后请 Ctrl+F5 强刷浏览器**（前端模块受浏览器启发式缓存，普通刷新可能拿旧文件）。
+
 - 方舟 `omni_reference_task_type` 显式声明与 data URL 标注帧是否被官方接受：待 1 次授权付费实测（现发送前不下发该字段，与画布版一致）。
 - 精准编辑帧标注 UI（画布版 ✦ 标注工具）尚未移植，契约层已支持（`role=annotation` + 时间戳编译）。
 - 可灵元素/多镜头 v0.1 用 JSON widget 传参，前端编辑器待补。

@@ -167,13 +167,20 @@ function refreshTilesWidget(node) {
             ? `${tiles.length} 个素材${videoTiles.some((tile) => tile.trimmed) ? " · 已裁" + videoTiles.filter((tile) => tile.trimmed).length + "段" : ""}`
             : "拖入或点击＋添加参考素材";
     }
-    syncTilesWidth(node);
+    syncDomWidths(node);
 }
 
-function syncTilesWidth(node) {
-    const widget = node.widgets?.find((w) => w.name === "ariadne_assets");
-    if (!widget?.element) return;
-    widget.element.style.width = `${Math.max(100, Number(node.size?.[0] || 0) - 22)}px`;
+function syncDomWidths(node) {
+    // DOM widget 元素必须显式定宽：默认 width:100% 会继承到全画布宽（溢出 1300px——实机复现）。
+    const width = `${Math.max(100, Number(node.size?.[0] || 0) - 22)}px`;
+    for (const name of ["ariadne_assets"]) {
+        const widget = node.widgets?.find((w) => w.name === name);
+        if (widget?.element) widget.element.style.width = width;
+    }
+    for (const type of ["ariadne_prompt", "ariadne_estimate"]) {
+        const widget = node.widgets?.find((w) => w.type === type);
+        if (widget?.element) widget.element.style.width = width;
+    }
 }
 
 function makeTilesWidget(node) {
@@ -229,10 +236,13 @@ function makeTilesWidget(node) {
     node.widgets.splice(index, 0, widget);
     const originalResize = node.onResize;
     node.onResize = function (...args) {
-        syncTilesWidth(node);
+        syncDomWidths(node);
         return originalResize?.apply(this, args);
     };
+    syncDomWidths(node);
     refreshTilesWidget(node);
+    // 暴露刷新句柄：外部注入/调试时手动触发重渲染（正常 UI 路径由 uploadTile/remove 触发）。
+    widget.__ariadneRefreshTiles = () => refreshTilesWidget(node);
 }
 
 function kindOfFile(file) {
@@ -336,6 +346,7 @@ function makeCapsulePrompt(node) {
     const appended = node.widgets.indexOf(widget);
     if (appended >= 0) node.widgets.splice(appended, 1);
     node.widgets.splice(index, 0, widget);
+    syncDomWidths(node);
     render(lastValue);
 }
 
@@ -560,8 +571,9 @@ function openTrimDialog(node, widget, tile) {
             const points = (data.cutPoints || []).filter((point) => point > 0 && point < seconds);
             if (!points.length) {
                 timeline.__keepRanges = null;
-                rangeLabel.textContent = "未检测到切点，请改用手动区间";
                 render();
+                // 先 render 再设文案：render 会重写 rangeLabel，顺序反了提示会被覆盖（实机发现）。
+                rangeLabel.textContent = "未检测到切点，请改用手动区间";
                 return;
             }
             // 水位法：把目标保留时长摊到每个镜头的开头一段（画布版 trim.ts 同款）。
@@ -644,6 +656,7 @@ function makeEstimateWidget(node) {
         widget.__ariadneRefresh?.();
         return result;
     };
+    syncDomWidths(node);
     widget.__ariadneRefresh();
     return widget;
 }
@@ -692,10 +705,17 @@ function upgradeNode(node) {
         safe("胶囊提示词", () => makeCapsulePrompt(node));
         safe("估价", () => makeEstimateWidget(node));
     }
-    requestAnimationFrame(() => {
-        try { node.setSize(node.computeSize()); } catch { /* 新前端布局自适应 */ }
-        node.setDirtyCanvas(true, true);
-    });
+    // 高度重算必须在 DOM widget 挂载后（挂载前 offsetHeight=0，同步 setSize 会压扁高度把
+    // 底部 widget 挤出节点边界——实机复现）。rAF 在后台标签会被节流到永不执行，用 setTimeout 兜底。
+    // 宽度下限 380 与高度一起在重算后钳制（computeSize 会返回窄宽度覆盖先前的加宽——实机复现）。
+    setTimeout(() => {
+        try {
+            const size = node.computeSize();
+            node.setSize([Math.max(size[0], 380), size[1]]);
+            node.setDirtyCanvas(true, true);
+        } catch { /* 新前端布局自适应 */ }
+    }, 60);
+    node.setDirtyCanvas(true, true);
 }
 
 // ---- 侧栏工作台：配置 + 用法 ----
@@ -807,10 +827,10 @@ app.registerExtension({
     nodeCreated(node) {
         if (!NODE_TYPES.has(nodeType(node))) return;
         if (app.configuringGraph) return;  // 加载工作流期间不升级，交给 loadedGraphNode
-        requestAnimationFrame(() => upgradeNode(node));
+        upgradeNode(node);
     },
     loadedGraphNode(node) {
         if (!NODE_TYPES.has(nodeType(node))) return;
-        requestAnimationFrame(() => upgradeNode(node));
+        upgradeNode(node);
     },
 });
