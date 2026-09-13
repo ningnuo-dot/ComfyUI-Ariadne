@@ -26,6 +26,16 @@ class SeedanceKieChannelTests(unittest.TestCase):
         self.assertIn("@Image1提供人物外观与服装", text)
         self.assertIn("@Video1提供动作、运镜与节奏", text)
 
+    def test_kie_duty_numbering_with_free_assets_first(self):
+        """无职责素材（free）排在职责素材之前时，职责句编号必须跟着替换编号走（2026-09-14 回归）。"""
+        assets = [
+            SeedanceAsset("image", "free", "u0", label="@图片1"),
+            SeedanceAsset("image", "character", "u1", label="@图片2"),
+        ]
+        text = compile_kie_prompt("@图片1氛围参照，@图片2是模特", assets)
+        self.assertIn("@Image2提供人物外观与服装", text)
+        self.assertNotIn("@Image1提供", text)
+
     def test_input_whitelist_and_fields(self):
         s = self.spec(assets=[SeedanceAsset("image", "character", "u1")])
         request = compile_kie_request(s)

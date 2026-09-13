@@ -166,8 +166,77 @@ function render() {
 
 // ---------- 创作页（原版密度：模式页签 / 素材缩略条 / 行内胶囊提示词） ----------
 
+// ---------- 轻量创作台（Veo/可灵/Omni/一瞬入画）：素材条 + 提示词 + 生成；参数仍在节点本体 ----------
+function renderGenericCreatePage(node) {
+    const page = el("div", "ariadne-dock-page");
+    const scroll = el("div", "ariadne-dock-scroll");
+
+    // @引用编辑只在有真 prompt 契约的节点启用；一瞬入画没有自由提示词，改编辑「追加约束」
+    const hasPrompt = typeof widgetValue(node, "prompt") === "string";
+    const noteMode = !hasPrompt && typeof widgetValue(node, "extra_note") === "string";
+    const textField = hasPrompt ? "prompt" : noteMode ? "extra_note" : null;
+
+    const assets = collectAssets(node);
+    const strip = el("div", "ariadne-dock-strip");
+    strip.title = textField === "prompt"
+        ? "素材全走连线：批量图像按张数展开；一个瓦片 = 一张引用，点击把 @引用 写进提示词"
+        : "素材全走连线：批量图像按张数展开；一个瓦片 = 一张参考";
+    for (const asset of assets) {
+        const chip = el("button", "ariadne-dock-chip socket", `@${asset.label}`);
+        chip.type = "button";
+        chip.title = `连线素材：${KIND_LABEL[asset.kind]}·${ROLE_LABEL[asset.role] || ""}` +
+            (textField === "prompt" ? `；点击把 @${asset.label} 写进提示词` : "（预览）");
+        if (textField === "prompt") {
+            chip.addEventListener("click", () => {
+                const text = String(widgetValue(node, "prompt") || "");
+                setWidgetValue(node, "prompt", `${text}${text && !text.endsWith(" ") ? " " : ""}@${asset.label} `);
+                state.note = `已写入 @${asset.label}；该素材的身份/职责请在提示词中说明`;
+                render();
+            });
+        }
+        strip.appendChild(chip);
+    }
+    if (!assets.length) strip.appendChild(el("span", "ariadne-dock-status", "把图片/视频连线到节点插座即可在此看到引用"));
+    scroll.appendChild(strip);
+
+    if (textField) {
+        const promptBox = el("textarea", "ariadne-dock-input");
+        promptBox.rows = 4;
+        promptBox.placeholder = noteMode ? "追加约束（会拼进保真提示词，可留空）…" : "描述你想生成的画面…";
+        promptBox.value = String(widgetValue(node, textField) || "");
+        promptBox.addEventListener("change", () => setWidgetValue(node, textField, promptBox.value));
+        scroll.appendChild(promptBox);
+        scroll.appendChild(el("div", "ariadne-dock-note", noteMode ? "提示词由保真模板生成，这里只追加约束；模式/画幅/质量在节点本体调整" : ""));
+    } else {
+        scroll.appendChild(el("div", "ariadne-dock-note", "参数在节点本体调整"));
+    }
+
+    if (state.note) scroll.appendChild(el("div", "ariadne-dock-note", state.note));
+
+    // 底栏：状态 + 生成（只跑本节点，与 Seedance 版同款部分执行）
+    const bar = el("div", "ariadne-dock-bar");
+    const generate = el("button", "ariadne-dock-generate", "生成 ▲");
+    generate.type = "button";
+    generate.title = "只提交当前节点（含上游依赖）到 ComfyUI 队列；按量计费，弹确认后才会提交";
+    generate.addEventListener("click", () => {
+        const ok = window.confirm("只提交当前这个节点（含上游依赖）到 ComfyUI 队列，图里其他节点不会运行。\n按量计费的真实生成。确认提交？");
+        if (!ok) return;
+        app.queuePrompt(0, 1, { queueNodeIds: [node.id] });
+        state.note = "已提交队列（仅本节点）";
+        render();
+    });
+    bar.appendChild(generate);
+    page.append(scroll, bar);
+    els.body.appendChild(page);
+}
+
 function renderCreatePage() {
     const node = state.node;
+    // 视频家族其他节点（Veo/可灵/Omni/一瞬入画）：轻量创作台，参数仍在节点本体。
+    // 此分发不可删——否则他们会打开 Seedance 富面板，模式页签会把 Seedance 取值写进别家 task_type。
+    if (String(node.type) !== SEEDANCE_TYPE && String(node.type) !== SEEDANCE_FREE_TYPE) {
+        return renderGenericCreatePage(node);
+    }
     const page = el("div", "ariadne-dock-page");
     const scroll = el("div", "ariadne-dock-scroll ariadne-dock-create");
 
@@ -176,23 +245,28 @@ function renderCreatePage() {
     const assets = collectAssets(node);
     const modeWrap = el("div", "ariadne-pills ariadne-pills-modes");
     modeWrap.title = "切换只改变显示与锁定规则，不抹掉已填参数";
-    // 自由引用版没有首帧/尾帧/动作插座，只保留 全能参考/文生视频 两类模式
-    const modes = String(node.type) === SEEDANCE_FREE_TYPE
-        ? MODES.filter((item) => item.key === "auto" || item.key === "text")
+    // 自由引用版没有首帧/尾帧/动作插座，保留 全能参考/文生视频/多模态参考 三类模式
+    const freeNode = String(node.type) === SEEDANCE_FREE_TYPE;
+    const modes = freeNode
+        ? [...MODES.filter((item) => item.key === "auto" || item.key === "text"),
+           { key: "reference", label: "多模态参考", widget: "reference(多模态参考)" }]
         : MODES;
+    // 多模态参考在 modeOf 里归入全能参考展示，需按 task_type 原值判定选中态
+    const isReference = String(widgetValue(node, "task_type") || "").startsWith("reference");
     for (const item of modes) {
         const reason = modeDisabledReason(item.key, node, assets);
         const pill = el("button", "ariadne-pill ariadne-pill-mode", item.label);
         pill.type = "button";
-        pill.classList.toggle("active", item.key === mode);
-        pill.setAttribute("aria-pressed", String(item.key === mode));
+        const active = freeNode && item.key === "reference" ? isReference : item.key === mode && !isReference;
+        pill.classList.toggle("active", active);
+        pill.setAttribute("aria-pressed", String(active));
         pill.title = reason || MODE_LIMITS[item.key] || "";
         if (reason) {
             pill.disabled = true;
             pill.classList.add("blocked");
         }
         pill.addEventListener("click", () => {
-            setMode(node, item.key);
+            setWidgetValue(node, "task_type", item.widget);
             normalizeAspectLock(node);  // 锁定模式自动写自适应（解锁时在渲染处还原）
             render();
         });

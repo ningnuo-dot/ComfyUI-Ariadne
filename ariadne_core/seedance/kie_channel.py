@@ -26,25 +26,27 @@ def compile_kie_prompt(prompt: str, assets: list) -> str:
     """面板标签（@图片N）编译为 Kie 官方引用（@ImageN）；编号一致，仅前缀翻译 + 职责句。
 
     计数器跳过 first/last 帧（与 compile_references 对齐）——首尾帧不在 reference_image_urls
-    里，计入编号会让 @ImageN 与职责句错位（引用悬空照扣费）。
+    里，计入编号会让 @ImageN 与职责句错位（引用悬空照扣费）。职责句必须复用同一次编号
+    （2026-09-14 测试员发现：独立计数器在 free 等无职责素材排前时职责句编号错位）。
     """
     counters = {"image": 0, "video": 0, "audio": 0}
+    numbered: list[tuple[SeedanceAsset, str]] = []
     text = prompt.strip()
     for asset in assets:
         if asset.role in ("first-frame", "last-frame"):
             continue
-        if not asset.label:
-            continue
         counters[asset.kind] += 1
+        reference = f"@{KIND_PREFIX_KIE[asset.kind]}{counters[asset.kind]}"
+        numbered.append((asset, reference))
+        if not asset.label:
+            continue  # 无标签素材不参与替换，但照常占编号（与 compile_references/方舟侧一致）
         local = asset.label if asset.label.startswith("@") else f"@{asset.label}"
-        text = text.replace(local, f"@{KIND_PREFIX_KIE[asset.kind]}{counters[asset.kind]}")
-    counters2 = {"image": 0, "video": 0, "audio": 0}
-    duties = []
-    for asset in assets:
-        if asset.role not in ROLE_DUTY:
-            continue
-        counters2[asset.kind] += 1
-        duties.append(f"@{KIND_PREFIX_KIE[asset.kind]}{counters2[asset.kind]}提供{ROLE_DUTY[asset.role]}")
+        text = text.replace(local, reference)
+    duties = [
+        f"{reference}提供{ROLE_DUTY[asset.role]}"
+        for asset, reference in numbered
+        if asset.role in ROLE_DUTY
+    ]
     return f"{text}\n素材职责：{'；'.join(duties)}。" if duties else text
 
 

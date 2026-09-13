@@ -10,12 +10,12 @@
 
 import { app } from "../../scripts/app.js";
 import {
-    SEEDANCE_TYPE, SEEDANCE_FREE_TYPE, cachedTiles, collectAssets, normalizeAspectLock, syncTiles, tileKey, tilesOf, widgetValue, setProp, prop, isInputConnected,
+    SEEDANCE_TYPE, SEEDANCE_FREE_TYPE, VIDEO_PANEL_TYPES, cachedTiles, collectAssets, normalizeAspectLock, syncTiles, tileKey, tilesOf, widgetValue, setProp, prop, isInputConnected,
 } from "./ariadne_adapter.js";
-import { commitTiles, nextRole, openTrimDialog, refreshTilesDom, renderPromptChips, uploadAsset } from "./ariadne_media.js";
+import { commitTiles, nextRole, openTrimDialog, refreshTilesDom, renderPromptChips, uploadAsset, upstreamPreview } from "./ariadne_media.js";
 import { mountPanel, unmountPanel, isPanelMounted, refreshPanel } from "./ariadne_workbench.js";
 
-const NODE_TYPES = new Set([SEEDANCE_TYPE, SEEDANCE_FREE_TYPE, "AriadneVeo31Video", "AriadneKlingVideo", "AriadneKieImage"]);
+const NODE_TYPES = new Set([...VIDEO_PANEL_TYPES, "AriadneKieImage", "AriadneTopazUpscale"]);
 
 const KIND_LABEL = { image: "图片", video: "视频", audio: "音频" };
 const ROLE_LABEL = {
@@ -24,7 +24,7 @@ const ROLE_LABEL = {
 };
 
 // 节点本体折叠的低频字段：widget 保留在 node.widgets（序列化与 callback 完整），
-// 仅收起高度；创作台/展开参数随时改回。prompt / ariadne_assets / 预估行 / 创作台按钮不折叠。
+// 仅收起高度；创作台随时改回。prompt / ariadne_assets / 预估行 / 创作台按钮不折叠。
 const COLLAPSIBLE_WIDGETS = [
     "task_type", "duration", "resolution", "aspect_ratio", "generate_audio", "output_format",
     "channel", "download_folder", "return_last_frame", "poll_interval_seconds", "timeout_seconds",
@@ -61,10 +61,11 @@ function injectCss() {
 // ---- 中文标签 ----
 function applyChineseLabels(node) {
     const type = nodeType(node);
-    const widgetLabels = type === SEEDANCE_TYPE ? {
+    const widgetLabels = type === SEEDANCE_TYPE || type === SEEDANCE_FREE_TYPE ? {
         prompt: "提示词", task_type: "任务模式", duration: "时长（秒）", resolution: "分辨率",
         aspect_ratio: "画幅", generate_audio: "生成音频", output_format: "输出格式",
         channel: "生成渠道", download_folder: "保存文件夹", ariadne_assets: "素材",
+        image_1: "图像 1", image_2: "图像 2", image_3: "图像 3",
         return_last_frame: "返回尾帧", poll_interval_seconds: "轮询间隔（秒）", timeout_seconds: "超时（秒）",
     } : type === "AriadneVeo31Video" ? {
         prompt: "提示词", task_type: "任务模式", model: "模型档位", duration: "时长（秒）",
@@ -76,6 +77,9 @@ function applyChineseLabels(node) {
         sound: "生成音频", quality_mode: "品质（std/pro）", download_folder: "保存文件夹",
         kling_elements: "角色元素（JSON）", kling_shots: "多镜头分镜（JSON）",
         poll_interval_seconds: "轮询间隔（秒）", timeout_seconds: "超时（秒）",
+    } : type === "AriadneTopazUpscale" ? {
+        upscale_factor: "放大倍数", nsfw_checker: "内容审核", download_folder: "保存文件夹",
+        poll_interval_seconds: "轮询间隔（秒）", timeout_seconds: "超时（秒）",
     } : {
         platform: "服务商", prompt: "提示词", aspect_ratio: "画幅", resolution: "分辨率",
         download_folder: "保存文件夹",
@@ -83,7 +87,7 @@ function applyChineseLabels(node) {
     const inputLabels = {
         first_frame: "首帧", last_frame: "尾帧", character_images: "人物参考图",
         wardrobe_images: "服装参考图", scene_images: "场景参考图", motion_video: "动作参考视频",
-        reference_audio: "参考音频", reference_images: "参考图",
+        reference_audio: "参考音频", reference_images: "参考图", source_video: "源视频",
     };
     const set = () => {
         const map = {};
@@ -127,7 +131,7 @@ function installCompactSerialization(node) {
 
 // 提示词编辑与素材编排已全部移入创作台：紧凑态下提示词胶囊与「＋素材」素材行也一并摘出
 // （数据载体藏进 stash，序列化/创作台读写不变），节点本体只留插座、插座已连标识条（独立）、
-// 费用预估与创作台按钮行；「展开参数」时恢复完整编辑形态。
+// 费用预估与创作台按钮行；创作台内可随时编辑。
 const ALWAYS_STASHED_IN_COMPACT = ["prompt", "ariadne_assets"];
 
 function stashWidgets(node) {
@@ -644,6 +648,91 @@ async function refreshEstimate(node, note) {
     }
 }
 
+// ---- 费用预估（Topaz 节点）：按上游源视频时长 × 放大倍数估价。
+//      Topaz 无提示词/素材/生成，不挂创作台按钮——预估独立成行（widget 类型沿用 ariadne_estimate，宽度同步已覆盖）。
+function makeTopazEstimateWidget(node) {
+    if (node.__ariadneEstimateEl) return node.__ariadneEstimateEl;
+    const note = document.createElement("div");
+    note.className = "ariadne-estimate";
+    note.textContent = "费用预估: …";
+    node.__ariadneEstimateEl = note;
+    const row = document.createElement("div");
+    row.append(note);
+    const widget = node.addDOMWidget("费用预估", "ariadne_estimate", row, { hideOnZoom: false, serialize: false });
+    widget.serialize = false;
+    widget.element = row;
+    widget.computeSize = () => [0, 24];
+    widget.computeLayoutSize = undefined;
+    const refresh = () => refreshTopazEstimate(node, note);
+    const factorWidget = node.widgets?.find((w) => w.name === "upscale_factor");
+    if (factorWidget) {
+        const original = factorWidget.callback;
+        factorWidget.callback = function (...args) {
+            const result = original?.apply(this, args);
+            refresh();
+            return result;
+        };
+    }
+    const originalConnections = node.onConnectionsChange;
+    node.onConnectionsChange = function (...args) {
+        node.__ariadneTopazDuration = undefined;  // 换源后重探时长
+        const result = originalConnections?.apply(this, args);
+        refresh();
+        return result;
+    };
+    syncDomWidths(node);
+    refresh();
+    return note;
+}
+
+function probeVideoDuration(url) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        const finish = (value, error) => {
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            if (value > 0) resolve(value);
+            else reject(error || new Error("视频时长未知"));
+        };
+        video.onloadedmetadata = () => finish(Number(video.duration) || 0);
+        video.onerror = () => finish(0, new Error("视频读取失败"));
+        window.setTimeout(() => finish(0, new Error("视频时长探测超时")), 8000);
+        video.src = url;
+    });
+}
+
+async function refreshTopazEstimate(node, note) {
+    const factor = String(widgetValue(node, "upscale_factor") || "2").split("(")[0].trim();
+    let duration = Number(node.__ariadneTopazDuration || 0);
+    if (!(duration > 0)) {
+        // 时长从 source_video 上游（LoadVideo 类，取其源文件 /view 地址）探：生成类上游无落盘文件则显示 --
+        const preview = upstreamPreview(node, "source_video");
+        if (preview.url && preview.isVideo) {
+            try {
+                duration = await probeVideoDuration(preview.url);
+                node.__ariadneTopazDuration = duration;
+            } catch {
+                duration = 0;
+            }
+        }
+    }
+    const seq = ++estimateSeq;
+    if (!(duration > 0)) { note.textContent = "费用预估: --"; return; }
+    try {
+        const response = await fetch("/ariadne/estimate", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind: "topaz", factor, durationSeconds: duration }),
+        });
+        const data = await response.json();
+        if (seq !== estimateSeq) return;  // 快速改参数时丢弃过期响应
+        const estimate = data.estimate;
+        note.textContent = estimate ? `费用预估 ≈¥${estimate.cny}` : "费用预估: --";
+    } catch {
+        if (seq === estimateSeq) note.textContent = "费用预估: 不可用";
+    }
+}
+
 // ---- 升级入口 ----
 function upgradeNode(node) {
     const type = nodeType(node);
@@ -663,6 +752,12 @@ function upgradeNode(node) {
         safe("创作台按钮", () => makeDockButtonWidget(node));
         safe("紧凑化", () => applyCompactBody(node));
         safe("画幅锁定", () => normalizeAspectLock(node));  // 载入即锁定模式时自愈为自适应（幂等）
+    } else if (type === "AriadneTopazUpscale") {
+        // Topaz 无提示词/素材/生成：不挂创作台按钮与面板，只挂费用预估行
+        safe("估价", () => makeTopazEstimateWidget(node));
+    } else {
+        // 视频家族其他节点：轻量创作台（素材条/提示词/生成），参数仍在节点本体
+        safe("创作台按钮", () => makeDockButtonWidget(node));
     }
     // 高度重算必须在 DOM widget 挂载后（挂载前 offsetHeight=0，同步 setSize 会压扁高度把
     // 底部 widget 挤出节点边界——实机复现）。rAF 在后台标签会被节流到永不执行，用 setTimeout 兜底。
@@ -803,19 +898,22 @@ function registerSidebarTab() {
     });
 }
 
-// ---- 新建节点时自动补一个 SaveVideo 并接线（用户经常忘记接保存，2026-09-14 要求）。
+// ---- 新建节点时自动补一个保存节点并接线（用户经常忘记接保存，2026-09-14 要求）。
 //      只在拖入新建时执行：载入工作流走 loadedGraphNode 不进来；复制粘贴/已接线的输出已有连线也不动作。
+//      视频输出接 SaveVideo；图像输出（一瞬入画）接 SaveImage。
 function autoConnectSaveVideo(node) {
     try {
         if (node.outputs?.[0]?.links?.length) return;
+        const isImageOut = String(node.outputs?.[0]?.type || "") === "IMAGE";
+        const saveType = isImageOut ? "SaveImage" : "SaveVideo";
         const LG = window.LiteGraph || globalThis.LiteGraph;
-        const saveNode = LG?.createNode?.("SaveVideo");
+        const saveNode = LG?.createNode?.(saveType);
         if (!saveNode) return;
         saveNode.pos = [node.pos[0] + (node.size?.[0] || 320) + 60, node.pos[1]];
         app.graph.add(saveNode);
         node.connect(0, saveNode, 0);
     } catch (error) {
-        console.warn("Ariadne 自动接 SaveVideo 失败：", error);
+        console.warn("Ariadne 自动接保存节点失败：", error);
     }
 }
 
@@ -831,8 +929,7 @@ app.registerExtension({
         if (!NODE_TYPES.has(nodeType(node))) return;
         if (app.configuringGraph) return;  // 加载工作流期间不升级，交给 loadedGraphNode
         upgradeNode(node);
-        const createdType = nodeType(node);
-        if (createdType === SEEDANCE_TYPE || createdType === SEEDANCE_FREE_TYPE) autoConnectSaveVideo(node);
+        if (VIDEO_PANEL_TYPES.has(nodeType(node))) autoConnectSaveVideo(node);
     },
     loadedGraphNode(node) {
         if (!NODE_TYPES.has(nodeType(node))) return;

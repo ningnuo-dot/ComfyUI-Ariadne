@@ -10,6 +10,7 @@ export const KIND_LABEL = { image: "图片", video: "视频", audio: "音频" };
 export const ROLE_LABEL = {
     "first-frame": "首帧", "last-frame": "尾帧", character: "人物", wardrobe: "服装",
     scene: "场景", motion: "动作", audio: "音频", annotation: "标注帧", free: "自由引用",
+    reference: "参考图",
 };
 export const ROLE_OPTIONS = Object.entries(ROLE_LABEL);
 
@@ -37,16 +38,30 @@ export const SOCKET_ROLE = {
     first_frame: "first-frame", last_frame: "last-frame", character_images: "character",
     wardrobe_images: "wardrobe", scene_images: "scene", motion_video: "motion", reference_audio: "audio",
     image_1: "free", image_2: "free", image_3: "free",
+    reference_images: "reference", reference_image: "reference",
+    scene_reference_image: "scene", reference_video: "motion",
 };
 
-// 允许按批量展开的插座：Python 侧 images_to_files 会把批次展开成多张分别编号。
-// 首帧/尾帧语义是单张（Python 只取批次第一张），不展开——显示必须与实际提交一致。
-export const SOCKET_BATCH = new Set(["character_images", "wardrobe_images", "scene_images", "image_1", "image_2", "image_3"]);
 export const SOCKET_KIND = {
     first_frame: "image", last_frame: "image", character_images: "image", wardrobe_images: "image",
     scene_images: "image", motion_video: "video", reference_audio: "audio",
     image_1: "image", image_2: "image", image_3: "image",
+    reference_images: "image", reference_image: "image", scene_reference_image: "image",
+    reference_video: "video",
 };
+
+// 允许按批量展开的插座：Python 侧 images_to_files 会把批次展开成多张分别编号。
+// 首帧/尾帧语义是单张（Python 只取批次第一张），不展开——显示必须与实际提交一致。
+export const SOCKET_BATCH = new Set([
+    "character_images", "wardrobe_images", "scene_images", "image_1", "image_2", "image_3",
+    "reference_images", "scene_reference_image",
+]);
+
+// 视频家族（创作台轻量面板 + 自动接保存节点覆盖范围）。
+export const VIDEO_PANEL_TYPES = new Set([
+    SEEDANCE_TYPE, SEEDANCE_FREE_TYPE, "AriadneVeo31Video", "AriadneKlingVideo",
+    "AriadneOmniVideo", "AriadneOmniFirstLastFrame", "AriadneInstantPainting",
+]);
 
 function widgetMap(node) {
     const map = {};
@@ -227,6 +242,7 @@ export function expandImageLeaves(node, inputName, depth = 0, seen = new Set()) 
 }
 
 function upstreamLeaves(upstream, depth, seen) {
+    if (depth > 12) return [{ opaque: true }];  // 深递归保险丝（正常画布链路远达不到）
     if (!upstream) return [{ opaque: true }];
     const key = String(upstream.id ?? "");
     if (key && seen.has(key)) return [{ opaque: true }];  // 环路保护

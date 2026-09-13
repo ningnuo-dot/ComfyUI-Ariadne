@@ -11,7 +11,7 @@ import os
 import uuid
 from pathlib import Path
 
-from ariadne_core import config
+from ariadne_core import config, topaz
 from ariadne_core.media import detect_cut_points, trim_video
 from ariadne_core.seedance import pricing
 from ariadne_core.seedance.ark_media import probe_video
@@ -178,6 +178,13 @@ def register_routes():
                 return web.json_response({"error": "仅限本机访问"}, status=403)
             try:
                 body = await _json_body(request)
+                # kind=topaz：按源视频时长 × 倍数估价（Topaz 节点专用，与 Seedance 口径独立）
+                if str(body.get("kind") or "") == "topaz":
+                    factor = topaz.parse_factor(body.get("factor") or "2")
+                    seconds = float(body.get("durationSeconds") or 0)
+                    if seconds <= 0:
+                        return web.json_response({"estimate": None})
+                    return web.json_response({"estimate": {"cny": topaz.estimate_cny(seconds, factor), "unit": "CNY"}})
                 channel = str(body.get("channel") or "ark")
                 resolution = str(body.get("resolution") or "720p")
                 duration = int(body.get("duration") or 0)
