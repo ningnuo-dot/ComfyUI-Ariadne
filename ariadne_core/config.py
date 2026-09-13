@@ -83,7 +83,7 @@ def resolve_ark_key() -> str:
     config = load_config()
     key = str(config.get("ark_api_key") or "").strip() or os.environ.get("ARK_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("尚未配置火山方舟 API Key：请在「Ariadne 工作台」侧栏填写方舟 Key（或设 ARK_API_KEY 环境变量）。")
+        raise RuntimeError("尚未配置火山方舟 API Key：请在「Ariadne 设置」侧栏填写方舟 Key（或设 ARK_API_KEY 环境变量）。")
     return key
 
 
@@ -91,7 +91,7 @@ def resolve_kie_key() -> str:
     config = load_config()
     key = str(config.get("kie_api_key") or "").strip() or os.environ.get("KIE_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("尚未配置 Kie 密钥：请在「Ariadne 工作台」侧栏填写 Kie Key（或设 KIE_API_KEY 环境变量）。")
+        raise RuntimeError("尚未配置 Kie 密钥：请在「Ariadne 设置」侧栏填写 Kie Key（或设 KIE_API_KEY 环境变量）。")
     return key
 
 

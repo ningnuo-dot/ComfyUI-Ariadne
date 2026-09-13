@@ -139,8 +139,11 @@ def run_ark_seedance(
             if progress:
                 progress(f"生成中（{status}）…")
         output = (payload or {}).get("output") or {}
+        # 2.5 把结果挪到了顶层 content.video_url（实测 cgt-qbv4p），旧版仍在 output.video_url，两处都认。
+        content = payload.get("content") if isinstance((payload or {}).get("content"), dict) else {}
         video_url = str(
-            output.get("video_url") or output.get("url")
+            content.get("video_url") or content.get("url")
+            or output.get("video_url") or output.get("url")
             or (payload or {}).get("video_url") or (payload or {}).get("url") or ""
         )
         if video_url and _TERMINAL_OK.search(status):

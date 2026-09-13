@@ -6,6 +6,7 @@ e7d40b79 的多图坍缩根因）；上传偶发 TLS 断开重试 3 次；input 
 """
 from __future__ import annotations
 
+import json
 import random
 import time
 import urllib.parse
@@ -56,9 +57,15 @@ def upload_to_kie(kind: str, file_path: str, api_key: str) -> str:
     raise RuntimeError(f"向 Kie 上传{KIND_LABEL[kind]}素材失败（已重试 {UPLOAD_RETRIES} 次）：{last_error}")
 
 
-def translate_kie_error(status: int, payload: dict | None, phase: str, api_key_hint: str = "Ariadne 工作台") -> RuntimeError:
-    """createTask/轮询错误翻译：把 Kie 校验拒绝翻成可操作的中文。"""
-    raw = str((payload or {}).get("message") or f"HTTP {status}") if isinstance(payload, dict) else f"HTTP {status}"
+def translate_kie_error(status: int, payload: dict | None, phase: str, api_key_hint: str = "「Ariadne 设置」侧栏") -> RuntimeError:
+    """createTask/轮询错误翻译：Kie 业务错误放在信封 msg 字段且 HTTP 常为 200，必须读信封而非状态码。"""
+    payload = payload if isinstance(payload, dict) else {}
+    code = payload.get("code")
+    raw = str(payload.get("msg") or payload.get("message") or "")
+    if not raw and payload.get("data") is not None:
+        raw = json.dumps(payload.get("data"), ensure_ascii=False)[:300]
+    if not raw:
+        raw = f"HTTP {status}" + ("（响应体为空或非 JSON）" if status == 200 else "")
     raw_lower = raw.lower()
     if status == 401 or "api key" in raw_lower:
         return RuntimeError(f"Kie 密钥无效或未授权（{phase}）：请在 {api_key_hint} 里检查 Kie Key。原始信息：{raw}")
@@ -68,7 +75,8 @@ def translate_kie_error(status: int, payload: dict | None, phase: str, api_key_h
         return RuntimeError(f"Kie 模型标识格式错误（{phase}）：标识最多两段 provider/模型。原始信息：{raw}")
     if "server exception" in raw_lower:
         return RuntimeError(f"Kie 拒绝了请求中的未知参数（{phase}）：input 只允许官方页面列出的字段。原始信息：{raw}")
-    return RuntimeError(f"Kie {phase}失败（HTTP {status}）：{raw}")
+    prefix = f"（code={code}）" if code not in (None, 200) else ""
+    return RuntimeError(f"Kie {phase}失败{prefix}（HTTP {status}）：{raw}")
 
 
 def create_task(body: dict, api_key: str, phase: str = "创建任务") -> str:
@@ -124,10 +132,13 @@ def poll_task(
         if state in _TERMINAL_OK:
             urls = normalize_result_urls(str(data.get("resultJson") or ""))
             credits = data.get("remainedCredits")
+            consumed = data.get("creditsConsumed")
             return {
                 "state": state,
                 "resultUrls": urls,
                 "remainedCredits": credits if isinstance(credits, (int, float)) else None,
+                # 实耗积分（recordInfo 原样带回，部分模型可能缺失）：用于任务信息展示。
+                "creditsConsumed": consumed if isinstance(consumed, (int, float)) else None,
             }
     raise RuntimeError("任务等待超时（30 分钟）")
 

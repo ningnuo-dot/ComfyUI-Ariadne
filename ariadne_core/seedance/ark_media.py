@@ -83,7 +83,7 @@ def to_ark_safe_url(url: str, kind: str, tos_settings: dict | None) -> str:
     if kind == "video":
         if not tos_settings or not tos_settings.get("accessKey"):
             raise RuntimeError(
-                "参考视频必须提供公网 http(s) URL（官方不支持 Base64）。请在 Ariadne 工作台配置 TOS "
+                "参考视频必须提供公网 http(s) URL（官方不支持 Base64）。请在「Ariadne 设置」侧栏配置 TOS "
                 "（对象存储）AK/SK 与桶名后重试；或把视频上传到公网地址后直接填 URL。"
             )
         from ..tos import upload_file
@@ -106,6 +106,6 @@ def to_ark_safe_url(url: str, kind: str, tos_settings: dict | None) -> str:
     if size > limit:
         raise RuntimeError(
             f"{label}素材 {size / 1024 / 1024:.1f}MB，超过内联上限 {limit // 1024 // 1024}MB。"
-            "请在 Ariadne 工作台配置 TOS，或改用更小的素材。"
+            "请在「Ariadne 设置」侧栏配置 TOS，或改用更小的素材。"
         )
     return _data_url(url)

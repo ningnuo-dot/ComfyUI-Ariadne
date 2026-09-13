@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 MODEL = "doubao-seedance-2-5-260628"
-ENDPOINT = "/api/v3/contents/generations/tasks"
+# 相对路径：ark.py 的 ARK_BASE_URL 已含 /api/v3，这里不能再带一遍（曾拼成 /api/v3/api/v3/... 空包 404）
+ENDPOINT = "/contents/generations/tasks"
 
 ROLES = ("character", "wardrobe", "scene", "motion", "audio", "first-frame", "last-frame", "annotation")
 KINDS = ("image", "video", "audio")
