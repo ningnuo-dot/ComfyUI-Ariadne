@@ -14,7 +14,7 @@ Ariadne 视频家族的 ComfyUI 自定义节点包——把无限画布（Daedal
 | Ariadne · Omni 1.1 参考素材视频 | Kie | 人物/场景/动作/固定角色四路输入（固定角色ID 可连 ComfyUI-Kie 的角色节点） |
 | Ariadne · Omni 1.1 首尾帧过渡 | Kie | 首帧必填、尾帧可选 |
 | Ariadne · 一瞬入画 | Kie | 视频/多图 → 高保真场景图（gpt-image-2，自动抽帧 + 保真提示词模板） |
-| Ariadne · Topaz 视频超分 | Kie | topaz/video-upscale：1× 修复增强 / 2× / 4× 放大（官方限 MP4/MOV/MKV ≤50MB） |
+| Ariadne · Topaz 视频超分 | Kie | topaz/video-upscale：1× 修复增强 / 2× / 4× 放大，nsfw_checker 可关（官方限 MP4/MOV/MKV ≤50MB） |
 
 ## 创作台（v0.3.0 核心）
 

@@ -25,9 +25,12 @@ class TopazContractTests(unittest.TestCase):
             topaz.parse_factor("8(8倍)")
 
     def test_compile_request_matches_official_fields(self):
-        # 官方 OpenAPI 仅 video_url + upscale_factor（字符串枚举），多字段会被 Kie 拒绝或静默忽略。
+        # 官方字段：video_url + upscale_factor（字符串枚举，OpenAPI）+ nsfw_checker（接入页，默认 true）。
         body = topaz.compile_request("https://example.com/a.mp4", "2")
-        self.assertEqual(body, {"model": "topaz/video-upscale", "input": {"video_url": "https://example.com/a.mp4", "upscale_factor": "2"}})
+        self.assertEqual(body, {"model": "topaz/video-upscale", "input": {
+            "video_url": "https://example.com/a.mp4", "upscale_factor": "2", "nsfw_checker": True}})
+        off = topaz.compile_request("https://example.com/a.mp4", "4", nsfw_checker=False)
+        self.assertEqual(off["input"]["nsfw_checker"], False)
 
     def test_validate_source_extension_and_size(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,8 +82,9 @@ class TopazNodeContractTests(unittest.TestCase):
         spec.loader.exec_module(module)
         schema = module.AriadneTopazUpscale.INPUT_TYPES()
         self.assertEqual(schema["required"]["source_video"][0], "VIDEO")
-        self.assertNotIn("nsfw_checker", schema["required"])  # 官方未列字段不做控件（防回归）
-        self.assertNotIn("nsfw_checker", schema["optional"])
+        # nsfw_checker 为官网接入页列出的合法字段（默认 true），必须有开关（画布版同款）。
+        self.assertEqual(schema["required"]["nsfw_checker"][0], "BOOLEAN")
+        self.assertTrue(schema["required"]["nsfw_checker"][1]["default"])
         self.assertTrue(schema["required"]["upscale_factor"][1]["default"].startswith("2"))
 
 
@@ -153,16 +157,17 @@ class TopazEndToEndMockTests(unittest.TestCase):
         module.request_bytes = fake_download
         module.config.resolve_kie_key = lambda: "KEY"
         try:
-            result = node.upscale(FakeVideo(), "4(4倍放大)", str(self.tmp_out))
+            result = node.upscale(FakeVideo(), "4(4倍放大)", True, str(self.tmp_out))
         finally:
             (module.kie_core.upload_to_kie, module.kie_core.create_task, module.kie_core.poll_task,
              module.request_bytes, module.config.resolve_kie_key) = originals
 
         kind, path, api_key = captured["upload"]
         self.assertEqual((kind, path, api_key), ("video", str(source), "KEY"))
-        # 请求体严格匹配官方字段（无 nsfw_checker 等未列字段）。
+        # 请求体严格匹配官方字段（接入页三项 + 模型标识）。
         self.assertEqual(captured["body"], {"model": "topaz/video-upscale",
-                                            "input": {"video_url": "https://kie.example/uploaded.mp4", "upscale_factor": "4"}})
+                                            "input": {"video_url": "https://kie.example/uploaded.mp4",
+                                                      "upscale_factor": "4", "nsfw_checker": True}})
         self.assertEqual(captured["poll"], ("task_topaz_1", "KEY"))
         self.assertEqual(captured["download"], ("GET", "https://kie.example/result.mp4"))
         saved = self.tmp_out / "Topaz_task_topaz_1.mp4"

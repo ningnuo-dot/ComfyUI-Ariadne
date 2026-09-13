@@ -4,8 +4,8 @@
 
 **Ariadne · Topaz 视频超分（Kie）**——无限画布 `ariadne-topaz` 插件移植，为上游视频节点产物做云端放大：
 
-- 新节点 `AriadneTopazUpscale`「Ariadne · Topaz 视频超分（Kie）」：接标准 VIDEO 输入（本包生成节点或 LoadVideo 均可）→ 自动上传 Kie → `topaz/video-upscale` 云端超分 → 成片落 `output/ariadne/Topaz_<taskId>.mp4` 返回 VIDEO。倍数 1×（修复增强，不改尺寸）/ 2×（默认）/ 4×。
-- 契约层 `ariadne_core/topaz.py`：请求字段严格按官方 OpenAPI（docs.kie.ai，2026-09-14 核对）——input 仅 `video_url` + `upscale_factor`（字符串 '1'/'2'/'4'）。官方未列 `nsfw_checker`，不做该控件（沿用「官方没列的字段不给空壳」铁律）；上传前本地拦截官方硬限制 MP4/MOV/MKV ≤50MB，早失败不浪费上传。
+- 新节点 `AriadneTopazUpscale`「Ariadne · Topaz 视频超分（Kie）」：接标准 VIDEO 输入（本包生成节点或 LoadVideo 均可）→ 自动上传 Kie → `topaz/video-upscale` 云端超分 → 成片落 `output/ariadne/Topaz_<taskId>.mp4` 返回 VIDEO。倍数 1×（修复增强，不改尺寸）/ 2×（默认）/ 4×；内容审核 `nsfw_checker` 开关默认开。
+- 契约层 `ariadne_core/topaz.py`：字段按官方核对（2026-09-14）——`video_url` + `upscale_factor`（字符串 '1'/'2'/'4'）见 docs.kie.ai OpenAPI；`nsfw_checker`（boolean，默认 true）见官网接入页 kie.ai/topaz-video-upscaler（OpenAPI 页未写全，显式发送保证行为可预期）。上传前本地拦截官方硬限制 MP4/MOV/MKV ≤50MB，早失败不浪费上传。
 - 费用预估沿用画布版口径（1×/2× 每秒 8 credits、4× 14，≈¥0.036/credit），并在任务信息中回显 `creditsConsumed` 实耗（`kie.poll_task` 返回补 `creditsConsumed` 字段，向后兼容）。
 - 与画布版差异：上传路径沿用本包统一的 `videos/user-uploads`（画布用 `videos/comfyui`，均被 Kie 接受）；无画布侧自动落库/衍生节点逻辑（ComfyUI 由连线与落盘承接）。
 - 新增 7 项离线测试（契约纯函数 + poll 实耗透传 + mock 端到端，零付费）；Python 83 项全绿。真实扣费生成待用户亲自触发首验。

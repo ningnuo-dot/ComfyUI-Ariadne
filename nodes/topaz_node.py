@@ -40,6 +40,8 @@ class AriadneTopazUpscale:
             "required": {
                 "source_video": ("VIDEO", {"tooltip": "待超分视频（Topaz 官方只接受 MP4/MOV/MKV，≤50MB）"}),
                 "upscale_factor": (["1(修复增强)", "2(2倍放大)", "4(4倍放大)"], {"default": "2(2倍放大)"}),
+                "nsfw_checker": ("BOOLEAN", {"default": True,
+                                             "tooltip": "内容审核（官方接入页字段，Playground 默认开）。自己生成的素材被云端误拦时可关。"}),
                 "download_folder": ("STRING", {"default": _default_download_folder()}),
             },
             "optional": {
@@ -48,7 +50,7 @@ class AriadneTopazUpscale:
             },
         }
 
-    def upscale(self, source_video, upscale_factor, download_folder, poll_interval_seconds=5, timeout_seconds=1800):
+    def upscale(self, source_video, upscale_factor, nsfw_checker, download_folder, poll_interval_seconds=5, timeout_seconds=1800):
         factor = topaz_core.parse_factor(upscale_factor)
         api_key = config.resolve_kie_key()
 
@@ -62,7 +64,7 @@ class AriadneTopazUpscale:
             duration = 0.0
 
         video_url = kie_core.upload_to_kie("video", source_path, api_key)
-        task_id = kie_core.create_task(topaz_core.compile_request(video_url, factor), api_key)
+        task_id = kie_core.create_task(topaz_core.compile_request(video_url, factor, nsfw_checker), api_key)
         print(f"[Ariadne] Topaz 超分任务已创建 {task_id}（{topaz_core.FACTOR_LABELS[factor]}），开始轮询…")
         result = kie_core.poll_task(task_id, api_key, poll_interval_seconds=poll_interval_seconds,
                                     timeout_seconds=timeout_seconds, progress=print)

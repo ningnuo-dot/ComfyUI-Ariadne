@@ -1,9 +1,11 @@
 """Kie · Topaz 视频超分（topaz/video-upscale）契约层：请求编译、来源校验、费用预估。
 
-画布插件 ariadne-topaz.js 移植；字段与枚举按官方 OpenAPI 核对
-（docs.kie.ai/market/topaz/video-upscale.md，2026-09-14）：input 仅 video_url（必填）+
-upscale_factor（字符串 '1'/'2'/'4'，默认 '2'）。官方未列 nsfw_checker，故不做该控件
-（用户铁律：官方没列的字段不给空壳）。
+画布插件 ariadne-topaz.js 移植；字段与枚举按官方核对（2026-09-14）：
+- docs.kie.ai/market/topaz/video-upscale.md（OpenAPI）：input 列 video_url（必填）+
+  upscale_factor（字符串 '1'/'2'/'4'，默认 '2'）；
+- 官网接入页 kie.ai/topaz-video-upscaler 另列 nsfw_checker（boolean，默认 true，
+  示例请求含该字段）——OpenAPI 页未写全，以接入页为准补上（符合「官方页面列出的
+  字段才可信」铁律）。
 """
 from __future__ import annotations
 
@@ -43,9 +45,19 @@ def validate_source(path: str) -> None:
         )
 
 
-def compile_request(video_url: str, factor: str) -> dict:
-    """createTask 请求体：字段白名单以官方 OpenAPI 为准，不加未列字段。"""
-    return {"model": MODEL, "input": {"video_url": video_url, "upscale_factor": str(factor)}}
+def compile_request(video_url: str, factor: str, nsfw_checker: bool = True) -> dict:
+    """createTask 请求体：字段白名单以官方接入页 + OpenAPI 为准，不加未列字段。
+
+    nsfw_checker 显式发送（画布版同款理由：保证行为可预期，不依赖服务端隐式默认）。
+    """
+    return {
+        "model": MODEL,
+        "input": {
+            "video_url": video_url,
+            "upscale_factor": str(factor),
+            "nsfw_checker": bool(nsfw_checker),
+        },
+    }
 
 
 def estimate_cny(duration_seconds: float, factor: str) -> float:
