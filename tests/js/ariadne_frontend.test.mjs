@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    MODES, buildOptimizerUserContent, cachedTiles, collectAssets, draftIsStale, expandImageLeaves, modeOf,
+    MODES, buildOptimizerUserContent, cachedTiles, collectAssets, draftIsStale, expandImageLeaves, humanizeExecutionResult, modeOf,
     modeRules, normalizeAspectLock, normalizeHistory, promptFingerprint, pushHistory, prop, setMode,
     splitPromptChips, setWidgetValue, setProp, syncTiles, tileKey, tilesOf, widgetValue, writeTiles,
 } from "../../web/js/ariadne_adapter.js";
@@ -306,4 +306,39 @@ test("批量展开按插座区分：标准版人物/服装/场景展开，首帧
     assert.equal(socketAssets.filter((asset) => asset.input === "character_images").length, 2);
     assert.equal(socketAssets.filter((asset) => asset.input === "first_frame").length, 1);
     assert.deepEqual(socketAssets.map((asset) => asset.label), ["图片1", "图片2", "图片3"]);
+});
+
+test("人话摘要：成功出片取成片文件名", () => {
+    assert.equal(
+        humanizeExecutionResult({
+            status: { completed: true },
+            outputs: { "9": { text: ["https://x/cgt.mp4?sig=1", "D:/out/Seedance版_cgt.mp4"] } },
+        }),
+        "✅ 出片完成：Seedance版_cgt.mp4",
+    );
+    assert.equal(
+        humanizeExecutionResult({ status: { completed: true }, outputs: { "1": { images: [{ filename: "abc.png" }] } } }),
+        "✅ 出片完成：abc.png",
+    );
+});
+
+test("人话摘要：失败按原因归类（积分/合规/参数缺失/兜底截断）", () => {
+    const entry = (msg) => ({ status: { status_str: "error", completed: false, messages: [["execution_error", { exception_message: msg }]] } });
+    assert.equal(
+        humanizeExecutionResult(entry("Kie 创建任务失败（code=402）（HTTP 200）：Credits insufficient : balance")),
+        "❌ Kie 积分不足：请先充值再试",
+    );
+    assert.equal(
+        humanizeExecutionResult(entry("Your account has exhausted its free trial quota for the model")),
+        "❌ 方舟免费额度已用完：请开通按量付费后重试",
+    );
+    assert.equal(
+        humanizeExecutionResult(entry("OutputVideoSensitiveContentDetected.PolicyViolation")),
+        "❌ 内容合规拦截：素材或成片触发了平台审核，换素材再试",
+    );
+    assert.equal(
+        humanizeExecutionResult(entry("Required input is missing: prompt")),
+        "❌ 参数缺失：节点必填参数没有提交成功",
+    );
+    assert.equal(humanizeExecutionResult(entry("某奇怪错误 ABCDEF")), "❌ 失败：某奇怪错误 ABCDEF");
 });

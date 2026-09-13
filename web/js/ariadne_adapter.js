@@ -378,3 +378,42 @@ export const SKILL_BY_NODE_TYPE = {
 export function skillForNode(node) {
     return SKILL_BY_NODE_TYPE[node?.comfyClass || node?.constructor?.comfyClass || node?.type] || "sd25-pe";
 }
+
+// 队列执行结果的人话摘要：用户只看结论不看堆栈（2026-09-14 用户要求）。
+// entry 为 /history/{id} 的条目；成功取成片文件名，失败按原因归类成一句话。
+export function humanizeExecutionResult(entry) {
+    if (!entry) return "任务状态未知";
+    const status = entry.status || {};
+    const messages = status.messages || [];
+    let errorText = "";
+    for (const [type, info] of messages) {
+        if (type === "execution_error") {
+            errorText = String(info?.exception_message || info?.error || "");
+            break;
+        }
+    }
+    if (status.completed && !errorText) {
+        const names = [];
+        for (const output of Object.values(entry.outputs || {})) {
+            for (const value of Object.values(output || {})) {
+                if (Array.isArray(value)) {
+                    for (const item of value) {
+                        if (item && typeof item === "object" && item.filename) names.push(item.filename);
+                        else if (typeof item === "string" && !/^https?:\/\//i.test(item) && /\.(mp4|mov|png|jpe?g|webp)$/i.test(item.split("?")[0])) {
+                            names.push(item.split("?")[0].split(/[\\/]/).pop());  // 跳过时效 URL，只报本地成片名
+                        }
+                    }
+                } else if (value && typeof value === "object" && value.filename) names.push(value.filename);
+            }
+        }
+        return names.length ? `✅ 出片完成：${names[0]}` : "✅ 生成完成";
+    }
+    if (errorText) {
+        if (/credits? insufficient|(^|\D)402(\D|$)/i.test(errorText)) return "❌ Kie 积分不足：请先充值再试";
+        if (/exhausted its free trial quota/i.test(errorText)) return "❌ 方舟免费额度已用完：请开通按量付费后重试";
+        if (/policyviolation|sensitivecontent/i.test(errorText)) return "❌ 内容合规拦截：素材或成片触发了平台审核，换素材再试";
+        if (/required input is missing/i.test(errorText)) return "❌ 参数缺失：节点必填参数没有提交成功";
+        return `❌ 失败：${errorText.slice(0, 80)}`;
+    }
+    return status.status_str === "error" ? "❌ 执行失败（原因未捕获，详情看队列面板）" : "✅ 完成";
+}

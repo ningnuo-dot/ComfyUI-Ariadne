@@ -6,8 +6,8 @@
 // 行内 @胶囊提示词、单行底栏（参数摘要｜✧优化｜状态▾历史｜有声/尾帧/裁剪｜价格+生成）。
 
 import {
-    MODES, KIND_LABEL, ROLE_LABEL, SEEDANCE_FREE_TYPE, buildOptimizerUserContent,
-    collectAssets, isInputConnected, modeOf, modeRules, normalizeAspectLock, prop,
+    MODES, KIND_LABEL, ROLE_LABEL, SEEDANCE_FREE_TYPE, VIDEO_PANEL_TYPES, buildOptimizerUserContent,
+    collectAssets, humanizeExecutionResult, isInputConnected, modeOf, modeRules, normalizeAspectLock, prop,
     setMode, setProp, setWidgetValue, skillForNode, tileKey,
     tilesOf, widgetValue,
 } from "./ariadne_adapter.js";
@@ -221,9 +221,7 @@ function renderGenericCreatePage(node) {
     generate.addEventListener("click", () => {
         const ok = window.confirm("只提交当前这个节点（含上游依赖）到 ComfyUI 队列，图里其他节点不会运行。\n按量计费的真实生成。确认提交？");
         if (!ok) return;
-        app.queuePrompt(0, 1, { queueNodeIds: [node.id] });
-        state.note = "已提交队列（仅本节点）";
-        render();
+        trackQueueResult(node, app.queuePrompt(0, 1, { queueNodeIds: [node.id] }));
     });
     bar.appendChild(generate);
     page.append(scroll, bar);
@@ -340,9 +338,7 @@ function renderCreatePage() {
         const ok = window.confirm("只提交当前这个节点（含上游依赖）到 ComfyUI 队列，图里其他节点不会运行。\n方舟/Kie 为按量计费的真实生成。确认提交？");
         if (!ok) return;
         // 整图队列会把工作流里所有 Seedance 节点一起跑一起计费（实测）；新前端支持按节点部分执行。
-        app.queuePrompt(0, 1, { queueNodeIds: [node.id] });
-        persistStatus(node, "已提交队列（仅本节点）；进度见节点与队列面板");
-        render();
+        trackQueueResult(node, app.queuePrompt(0, 1, { queueNodeIds: [node.id] }));
     });
     bar.appendChild(generate);
 
@@ -355,7 +351,45 @@ function renderCreatePage() {
 
 function persistStatus(node, text) {
     setProp(node, "statusText", text);
-    state.note = text;
+    if (state.node === node) state.note = text;  // 只刷新当前打开面板的节点，避免串台
+}
+
+// 提交后盯结果：用户只看结论（✅出片文件名 / ❌人话失败原因），不看堆栈。
+function trackQueueResult(node, submitted) {
+    persistStatus(node, "已提交，生成中…");
+    render();
+    Promise.resolve(submitted)
+        .then((res) => {
+            const pid = res?.prompt_id ?? res?.data?.prompt_id ?? null;
+            if (!pid) {
+                persistStatus(node, "已提交队列（未能取回任务号，结果看队列面板）");
+                render();
+                return;
+            }
+            pollHistory(node, pid);
+        })
+        .catch(() => {
+            persistStatus(node, "提交失败（详情看队列面板）");
+            render();
+        });
+}
+
+async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        let entry = null;
+        try {
+            entry = (await (await fetch(`/history/${pid}`)).json())[pid] || null;
+        } catch { /* 网络抖动继续等 */ }
+        if (entry) {
+            persistStatus(node, humanizeExecutionResult(entry));
+            if (isPanelMounted(node) && state.node === node) render();
+            return;
+        }
+    }
+    persistStatus(node, "生成时间较长（已监控 45 分钟），结果以队列面板为准");
+    if (isPanelMounted(node) && state.node === node) render();
 }
 
 // 裁剪目标解析：优先上传的视频瓦片；否则取连线动作视频上游的源文件名

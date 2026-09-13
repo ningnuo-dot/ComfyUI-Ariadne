@@ -7,6 +7,7 @@
 - 新节点 `AriadneTopazUpscale`「Ariadne · Topaz 视频超分（Kie）」：接标准 VIDEO 输入（本包生成节点或 LoadVideo 均可）→ 自动上传 Kie → `topaz/video-upscale` 云端超分 → 成片落 `output/ariadne/Topaz_<taskId>.mp4` 返回 VIDEO。倍数 1×（修复增强，不改尺寸）/ 2×（默认）/ 4×；内容审核 `nsfw_checker` 开关默认开。
 - 契约层 `ariadne_core/topaz.py`：字段按官方核对（2026-09-14）——`video_url` + `upscale_factor`（字符串 '1'/'2'/'4'）见 docs.kie.ai OpenAPI；`nsfw_checker`（boolean，默认 true）见官网接入页 kie.ai/topaz-video-upscaler（OpenAPI 页未写全，显式发送保证行为可预期）。上传前本地拦截官方硬限制 MP4/MOV/MKV ≤50MB，早失败不浪费上传。
 - 费用预估沿用画布版口径（1×/2× 每秒 8 credits、4× 14，≈¥0.036/credit），并在任务信息中回显 `creditsConsumed` 实耗（`kie.poll_task` 返回补 `creditsConsumed` 字段，向后兼容）。
+- **前端中文标签 + 节点内费用预估行**：节点加入前端扩展白名单——widget/插座全中文（放大倍数/内容审核/保存文件夹/轮询间隔/源视频等）；节点本体独立预估行按 `source_video` 上游（LoadVideo 类）真实时长 × 倍数估价（`/ariadne/estimate` 新增 `kind=topaz` 分支，旧参数 Seedance 口径不受影响；生成类上游无落盘文件或时长未知时显示 --，换源/切倍数自动刷新）。不挂创作台按钮与面板（Topaz 无提示词/素材/生成语义）。
 - 与画布版差异：上传路径沿用本包统一的 `videos/user-uploads`（画布用 `videos/comfyui`，均被 Kie 接受）；无画布侧自动落库/衍生节点逻辑（ComfyUI 由连线与落盘承接）。
 - 新增 7 项离线测试（契约纯函数 + poll 实耗透传 + mock 端到端，零付费）；Python 83 项全绿。真实扣费生成待用户亲自触发首验。
 
