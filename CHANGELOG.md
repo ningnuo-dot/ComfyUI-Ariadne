@@ -1,5 +1,31 @@
 # 更新记录
 
+## 0.4.0（2026-09-14）
+
+**Ariadne · Topaz 视频超分（Kie）**——无限画布 `ariadne-topaz` 插件移植，为上游视频节点产物做云端放大：
+
+- 新节点 `AriadneTopazUpscale`「Ariadne · Topaz 视频超分（Kie）」：接标准 VIDEO 输入（本包生成节点或 LoadVideo 均可）→ 自动上传 Kie → `topaz/video-upscale` 云端超分 → 成片落 `output/ariadne/Topaz_<taskId>.mp4` 返回 VIDEO。倍数 1×（修复增强，不改尺寸）/ 2×（默认）/ 4×。
+- 契约层 `ariadne_core/topaz.py`：请求字段严格按官方 OpenAPI（docs.kie.ai，2026-09-14 核对）——input 仅 `video_url` + `upscale_factor`（字符串 '1'/'2'/'4'）。官方未列 `nsfw_checker`，不做该控件（沿用「官方没列的字段不给空壳」铁律）；上传前本地拦截官方硬限制 MP4/MOV/MKV ≤50MB，早失败不浪费上传。
+- 费用预估沿用画布版口径（1×/2× 每秒 8 credits、4× 14，≈¥0.036/credit），并在任务信息中回显 `creditsConsumed` 实耗（`kie.poll_task` 返回补 `creditsConsumed` 字段，向后兼容）。
+- 与画布版差异：上传路径沿用本包统一的 `videos/user-uploads`（画布用 `videos/comfyui`，均被 Kie 接受）；无画布侧自动落库/衍生节点逻辑（ComfyUI 由连线与落盘承接）。
+- 新增 7 项离线测试（契约纯函数 + poll 实耗透传 + mock 端到端，零付费）；Python 83 项全绿。真实扣费生成待用户亲自触发首验。
+
+## 0.3.0（2026-09-13）
+
+Seedance 2.5 创作台重构（按 `docs/SEEDANCE_WORKBENCH_IMPLEMENTATION_PLAN.md`，API 名与全部输入/输出不变）：
+
+- **紧凑节点**：节点本体只留 7 插座、2 输出、提示词摘要（紧凑态只读、点击直达创作台）、素材摘要行、费用预估、「打开创作台/展开参数」按钮行。低频参数 widget 以 stash 方式从节点物理摘出（实测 `widget.hidden`/`computeSize(0)` 在新前端均不折叠行高），widget 对象保留并记 `__ariadneIndex`；序列化按定义序合并，`widgets_values` 位置顺序与未升级时逐位一致（新前端默认按位恢复）。
+- **底部创作台**（`document.body` 级浮层，画布缩放不影响）：与选中 Seedance 节点一一绑定，三页——创作（六模式页签+素材双入口+提示词+@插入+底栏摘要/估价/有声/尾帧/生成确认）、提示词工作台（五段式输入+流式优化+未应用草稿+历史去重 20 条+过期草稿确认保护）、输出参数（分辨率/画幅锁定/时长/渠道/格式/保存目录/高级轮询超时）。
+- **流式提示词优化**：`/ariadne/optimize` 升级为 SSE 透传（服务端注入 `resources/sd25-pe.SKILL.md` 原文系统规则，密钥只在服务端；上游非 200 统一报错事件；非流式回落；AbortController 中断保留已生成部分）。新增 `ariadne_core/seedance/optimizer.py` 契约层（五段式输入/聊天体/SSE 半包解析）。
+- **前端模块化**：新增 `ariadne_adapter.js`（widget 按名读写/callback 接力/stash 查找/素材聚合/草稿指纹/历史，纯函数可单测）、`ariadne_media.js`（上传/裁剪浮层/瓦片提交共享）、`ariadne_optimizer_client.js`（SSE 客户端）、`ariadne_workbench.js`（创作台）。
+- **新增自由引用版节点（09-14 用户要求）**：`AriadneSeedance25Free`「Ariadne · Seedance 2.5 视频生成（自由引用）」——标准版复制的姊妹节点，去掉首帧/尾帧/人物/服装/场景/动作/音频全部预设角色插座，仅 图像1/2/3 三个自由图像输入；role="free" 只编号不加职责句，身份/职责由提示词手工指定。任务类型仅 全能参考/文生视频/多模态参考。创作台面板/胶囊提示词/估价/优化全部复用（模式页签过滤），标准版节点不动；generate 尾部抽取为共享 `_run_generation`。**素材条批量支持**：批量图像（ImageBatch 等）按上游叶子图展开——3 张图的批量出 3 个瓦片、各自回源 LoadImage 预览，编号与 Python 批维展开一致，非加载类上游按 1 张兜底。新增 1 项 Python 端到端 + 2 项前端契约用例（Python 76 / 前端 23 全绿）。
+- **修复 Seedance 2.5 对接两处阻断（09-14 付费实测暴露）**：① ENDPOINT 与 ARK_BASE_URL 各含一份 `/api/v3`，拼成 `/api/v3/api/v3/...` 空包 404（任务都建不了），ENDPOINT 改相对路径；② 2.5 返回结构变化：结果视频地址在顶层 `content.video_url`（旧版在 `output.video_url`），旧解析取不到 URL 导致节点空转轮询到 30 分钟超时、成片不落盘——两处都认。另修 test_runtime_offline 端到端用例的 TOS 配置隔离（用户配置真桶后单测会真上传）。
+- **修复 Queue 参数整体缺失（09-14 实机首曝）**：新前端 `graphToPrompt` 从活 `node.widgets` 构建 `/prompt` 输入、不走 `onSerialize` 合并，stash 摘出的 10 个参数（prompt/duration/ariadne_assets/task_type/resolution 等）全部缺席，服务端报 `Required input is missing`。修复：包装 `app.graphToPrompt`（queuePrompt 内部为 `this.graphToPrompt` 调用），构建提交体期间临时归还 stash、结束按原折叠态收回；存档双序列化路径不变。**已实机验证生效**：修复后 Queue 校验通过、节点真实执行。
+- **画幅锁定自动写自适应（09-14 用户拍板）**：首帧/首尾帧/编辑/延长模式（方舟规格硬性要求 adaptive）进入时自动把画幅改写为自适应并记住原选择（`ariadne.lastAspect` 存 properties 随工作流保存），解锁时还原最近手选——修复「锁定只禁用格子不改值，用户被规格校验卡死还改不了」的缺口。挂三处：模式页签点击、输出参数页渲染（幂等自愈）、节点升级（载入工作流即自愈）；附 3 项 adapter 契约测试（前端契约 21 项全绿）。
+- **API 设置统一收敛到侧栏（09-14 迭代）**：侧栏页签更名「Ariadne 设置」，优化器模型框加「拉取」按钮（与创作台原分节同路由）；创作台输出参数页的站点/Key/模型行整体移除，连带清除旧 ⚙ 弹层遗留（状态字段/死函数/失引 CSS）；未配置提示与 config/kie/ark_media/routes 各处报错文案统一改指「Ariadne 设置」（节点 Key 本就统一读 `config.local.json`，无散落输入框）。
+- **胶囊引用吞正文修复（09-14 实测反馈）**：优化文案回填后 `@图片1` 连带后续中文整段包进胶囊（「@图片1为准」「@图片1作为首帧」）。根因：胶囊标签清单只认 `cachedTiles`（上传瓦片），纯插座会话（首尾帧连 LoadImage，无瓦片）清单为空，回退正则一路吞到标点。修复：切分逻辑抽为 `ariadne_adapter.js` 纯函数 `splitPromptChips`（悬空编号引用只按「种类词+编号」形状兜底，任何情况不吞正文），创作台与节点本体两处渲染改传 `collectAssets`（瓦片+插座并集）。胶囊纯视觉层，提交给方舟/Kie 的 prompt 一直是纯文本，本次问题不影响计费与生成。前端契约单测新增 4 项（共 18 项）全绿。
+- 测试：Python 73 项 + Node `--test` 前端契约 11 项全绿（模式切换不丢值/素材编号/五段式输入/SSE 半包/历史去重上限/过期草稿保护）；`tests/mock_optimizer_server.py` 本地 mock 验证流式/回落/中断（零付费）。
+
 ## 0.2.0（2026-09-12）
 
 Ariadne 家族补全（用户拍板：全家桶统一在 Ariadne 分类）：

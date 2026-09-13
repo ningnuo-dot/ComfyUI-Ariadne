@@ -156,9 +156,11 @@ class MockEndToEndTests(unittest.TestCase):
         original_run = module.run_ark_seedance
         original_download = module.request_bytes
         original_key = module.config.resolve_ark_key
+        original_tos = module.config.tos_settings
         module.run_ark_seedance = fake_run_ark
         module.request_bytes = fake_download
         module.config.resolve_ark_key = lambda: "KEY"
+        module.config.tos_settings = lambda: None  # 隔离真实 config.local.json：用户配置 TOS 后小图不得真传桶
         try:
             result = node.generate(
                 prompt="@图片1 站在阳台上", task_type="auto(全能参考)", duration=10,
@@ -170,6 +172,7 @@ class MockEndToEndTests(unittest.TestCase):
             module.run_ark_seedance = original_run
             module.request_bytes = original_download
             module.config.resolve_ark_key = original_key
+            module.config.tos_settings = original_tos
 
         spec, body = captured["spec"], captured["body"]
         # 编号与职责句编译真实生效。
@@ -185,6 +188,58 @@ class MockEndToEndTests(unittest.TestCase):
         self.assertEqual(video_output.path, str(saved))
         self.assertIn("Seedance 2.5 完成", info)
         self.assertIn("预估费用", info)
+
+    def test_generate_free_variant_no_role_duties(self):
+        """自由引用版：图像只编号不加职责句，身份由提示词手工指定。"""
+        module = self._load_node_module()
+        node = module.AriadneSeedance25Free()
+
+        import numpy as np
+        import torch
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.fromarray(np.zeros((64, 64, 3), dtype=np.uint8)).save(buffer, format="PNG")
+        buffer.seek(0)
+        image_1 = torch.from_numpy(np.array(Image.open(buffer).convert("RGB"))).float().unsqueeze(0) / 255.0
+
+        captured = {}
+
+        def fake_run_ark(spec, request_body, api_key, *args, **kwargs):
+            captured["spec"] = spec
+            captured["body"] = request_body
+            return {"taskId": "cfree-1", "videoUrl": "memory://fake.mp4"}
+
+        original_run = module.run_ark_seedance
+        original_download = module.request_bytes
+        original_key = module.config.resolve_ark_key
+        original_tos = module.config.tos_settings
+        module.run_ark_seedance = fake_run_ark
+        module.request_bytes = lambda *args, **kwargs: b"FAKE_MP4_BYTES"
+        module.config.resolve_ark_key = lambda: "KEY"
+        module.config.tos_settings = lambda: None
+        try:
+            result = node.generate(
+                prompt="@图片1 站在阳台上", task_type="auto(全能参考)", duration=5,
+                resolution="480p", aspect_ratio="adaptive", generate_audio=True,
+                output_format="mp4", channel="ark(火山方舟直连)", download_folder=str(self.tmp_out),
+                ariadne_assets="[]", image_1=image_1,
+            )
+        finally:
+            module.run_ark_seedance = original_run
+            module.request_bytes = original_download
+            module.config.resolve_ark_key = original_key
+            module.config.tos_settings = original_tos
+
+        spec, body = captured["spec"], captured["body"]
+        self.assertEqual(spec.assets[0].role, "free")
+        self.assertEqual(spec.assets[0].label, "@图片1")
+        self.assertIn("@图像1 站在阳台上", body["content"][0]["text"])
+        # 自由引用版：只编号，不生成素材职责句（身份/职责由用户手工写在提示词里）。
+        self.assertNotIn("素材职责", body["content"][0]["text"])
+        ref_items = [c for c in body["content"] if c.get("type") == "image_url"]
+        self.assertEqual(len(ref_items), 1)
+        self.assertEqual(ref_items[0]["role"], "reference_image")
 
     def test_generate_rejects_invalid_tiles_before_any_network(self):
         module = self._load_node_module()

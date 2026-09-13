@@ -83,6 +83,110 @@ def _normalize_to_channel(asset: SeedanceAsset, channel: str, tos: dict | None, 
     return to_ark_safe_url(url, asset.kind, tos)
 
 
+def _run_generation(*, prompt, task_type, duration, resolution, aspect_ratio, generate_audio,
+                    output_format, channel, download_folder, ariadne_assets,
+                    socket_assets, motion_seconds, motion_video_connected,
+                    return_last_frame, poll_interval_seconds, timeout_seconds, node):
+    """共享提交流程：瓦片组装 → 编号 → 校验 → 归一化 → 双渠道提交 → 成片落盘。"""
+    # ---- 组装素材序列：瓦片在前（保持面板顺序），插座接着编 ----
+    assets: list[SeedanceAsset] = []
+    tiles = _tiles_from_widget(ariadne_assets)
+    for tile in tiles:
+        role = str(tile.get("role") or "")
+        kind = str(tile.get("kind") or "")
+        if kind not in ("image", "video", "audio") or not role:
+            continue
+        path = _resolve_input_path(str(tile["name"]), str(tile.get("subfolder") or "ariadne"))
+        if kind == "video" and role != "annotation":
+            validate_video_pixels(path, tile.get("label") or tile["name"])
+        assets.append(SeedanceAsset(kind=kind, role=role, url=path, timestamp_seconds=tile.get("timestampSeconds")))
+    assets.extend(socket_assets)
+    _assign_labels(assets)
+
+    spec = SeedanceJobSpec(
+        task_type=task_type, prompt=prompt, assets=assets, duration=int(duration),
+        resolution=resolution, aspect_ratio=aspect_ratio, generate_audio=bool(generate_audio),
+        output_format=output_format, return_last_frame=bool(return_last_frame) and channel == "kie",
+    )
+    errors = validate_job(spec)
+    if errors:
+        raise RuntimeError("Seedance 任务校验失败：\n- " + "\n- ".join(errors))
+
+    # 输入视频总时长（估价用：两渠道含视频输入均按（输入+输出）时长计费）。
+    def _tile_seconds(tile: dict) -> float:
+        try:
+            return max(0.0, float(tile.get("seconds") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    input_seconds = motion_seconds + sum(
+        _tile_seconds(tile) for tile in tiles if tile.get("kind") == "video"
+    )
+
+    # ---- 素材归一化 + 提交 ----
+    if channel == "ark":
+        api_key = config.resolve_ark_key()
+        tos = config.tos_settings()
+        normalized = [
+            SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "ark", tos, api_key),
+                          asset.label, asset.timestamp_seconds)
+            for asset in spec.assets
+        ]
+        spec.assets = normalized
+        request = compile_request(spec)
+        result = run_ark_seedance(spec, request["body"], api_key, poll_interval_seconds, timeout_seconds,
+                                  progress=print)
+    else:
+        api_key = config.resolve_kie_key()
+        normalized = [
+            SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "kie", None, api_key),
+                          asset.label, asset.timestamp_seconds)
+            for asset in spec.assets
+        ]
+        spec.assets = normalized
+        request = compile_kie_request(spec)
+        result = run_kie_seedance(spec, request, api_key, poll_interval_seconds, timeout_seconds, progress=print)
+
+    # ---- 成片下载：智能分流（时效 URL 必须立即下载，禁回写） ----
+    # 下游接了保存节点（SaveVideo 等）→ 交由它落盘，本节点只下到临时文件供连线使用；
+    # 没接 → 自动落盘兜底，存到 download_folder（默认 output/ariadne）。
+    video_url = result["videoUrl"]
+    suffix = Path(video_url.split("?", 1)[0]).suffix or ".mp4"
+    video_connected = node._video_output_connected()
+    if video_connected:
+        import tempfile
+
+        local_path = Path(tempfile.gettempdir()) / f"ariadne-seedance-{result['taskId']}{suffix}"
+    else:
+        destination = Path(download_folder).expanduser() if str(download_folder).strip() else Path(_default_download_folder())
+        if not destination.is_absolute():
+            destination = (Path.cwd() / destination).resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        local_path = destination / f"Seedance版_{result['taskId']}{suffix}"
+    local_path.write_bytes(request_bytes("GET", video_url, phase="下载成片"))
+
+    video_output = node._video_from_file(str(local_path))
+    info_lines = [
+        f"Seedance 2.5 完成（渠道 {channel} / {task_type}）",
+        f"任务ID: {result['taskId']}",
+        f"素材: {', '.join(asset.label for asset in spec.assets) or '无'}",
+        f"视频已由下游保存节点落盘" if video_connected else f"本地文件: {local_path}",
+    ]
+    if channel == "kie":
+        estimate = pricing.estimate_kie_credits(resolution, int(duration), motion_video_connected or any(t.get("kind") == "video" for t in tiles), 0)
+        if estimate:
+            info_lines.append(f"预估积分（输入时长未计入部分以账单为准）: ≈{estimate:.0f}")
+        if result.get("remainedCredits") is not None:
+            info_lines.append(f"剩余积分: {result['remainedCredits']}")
+        if result.get("lastFrameUrl"):
+            info_lines.append(f"尾帧图 URL（24h 有效，请尽快保存）: {result['lastFrameUrl']}")
+    else:
+        estimate = pricing.estimate_ark_price(resolution, int(duration), includes_video=input_seconds > 0, input_video_seconds=input_seconds)
+        if estimate:
+            info_lines.append(f"预估费用（仅展示，以账单为准）: ≈¥{estimate}")
+    return {"ui": {"text": [video_url, str(local_path)]}, "result": (video_output, "\n".join(info_lines))}
+
+
 class AriadneSeedance25Video:
     """Ariadne · Seedance 2.5 视频生成（方舟直连/Kie 双渠道，全能参考/编辑/延长/首尾帧全模式）。"""
 
@@ -148,19 +252,7 @@ class AriadneSeedance25Video:
             if duration == -1 or int(duration) < 4 or int(duration) > 30:
                 raise RuntimeError("Kie 渠道生成时长必须为 4-30 秒的整数（不支持自适应）。")
 
-        # ---- 组装素材序列：瓦片在前（保持面板顺序），插座接着编 ----
-        assets: list[SeedanceAsset] = []
-        tiles = _tiles_from_widget(ariadne_assets)
-        for tile in tiles:
-            role = str(tile.get("role") or "")
-            kind = str(tile.get("kind") or "")
-            if kind not in ("image", "video", "audio") or not role:
-                continue
-            path = _resolve_input_path(str(tile["name"]), str(tile.get("subfolder") or "ariadne"))
-            if kind == "video" and role != "annotation":
-                validate_video_pixels(path, tile.get("label") or tile["name"])
-            assets.append(SeedanceAsset(kind=kind, role=role, url=path, timestamp_seconds=tile.get("timestampSeconds")))
-
+        # ---- 插座素材（角色固定）----
         socket_assets: list[SeedanceAsset] = []
         if first_frame is not None:
             socket_assets.append(SeedanceAsset("image", "first-frame", media.image_to_file(first_frame)))
@@ -170,6 +262,7 @@ class AriadneSeedance25Video:
             if images is not None:
                 for path in media.images_to_files(images):
                     socket_assets.append(SeedanceAsset("image", role, path))
+        motion_seconds = 0.0
         if motion_video is not None:
             motion_path = media.video_to_file(motion_video)
             validate_video_pixels(motion_path, "@视频(动作参考)")  # 上传 TOS 前拦截，省白传大文件
@@ -178,87 +271,30 @@ class AriadneSeedance25Video:
                 motion_seconds = media.probe_video(motion_path).get("seconds", 0.0)
             except Exception:
                 motion_seconds = 0.0
-        else:
-            motion_seconds = 0.0
         if reference_audio is not None:
             socket_assets.append(SeedanceAsset("audio", "audio", media.audio_to_wav(reference_audio)))
-        assets.extend(socket_assets)
-        _assign_labels(assets)
 
-        spec = SeedanceJobSpec(
-            task_type=task_type, prompt=prompt, assets=assets, duration=int(duration),
-            resolution=resolution, aspect_ratio=aspect_ratio, generate_audio=bool(generate_audio),
-            output_format=output_format, return_last_frame=bool(return_last_frame) and channel == "kie",
-        )
-        errors = validate_job(spec)
-        if errors:
-            raise RuntimeError("Seedance 任务校验失败：\n- " + "\n- ".join(errors))
-
-        # 输入视频总时长（估价用：两渠道含视频输入均按（输入+输出）时长计费）。
-        def _tile_seconds(tile: dict) -> float:
-            try:
-                return max(0.0, float(tile.get("seconds") or 0.0))
-            except (TypeError, ValueError):
-                return 0.0
-
-        input_seconds = motion_seconds + sum(
-            _tile_seconds(tile) for tile in tiles if tile.get("kind") == "video"
+        return _run_generation(
+            prompt=prompt, task_type=task_type, duration=duration, resolution=resolution,
+            aspect_ratio=aspect_ratio, generate_audio=generate_audio, output_format=output_format,
+            channel=channel, download_folder=download_folder, ariadne_assets=ariadne_assets,
+            socket_assets=socket_assets, motion_seconds=motion_seconds,
+            motion_video_connected=motion_video is not None,
+            return_last_frame=return_last_frame, poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=timeout_seconds, node=self,
         )
 
-        # ---- 素材归一化 + 提交 ----
-        if channel == "ark":
-            api_key = config.resolve_ark_key()
-            tos = config.tos_settings()
-            normalized = [
-                SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "ark", tos, api_key),
-                              asset.label, asset.timestamp_seconds)
-                for asset in spec.assets
-            ]
-            spec.assets = normalized
-            request = compile_request(spec)
-            result = run_ark_seedance(spec, request["body"], api_key, poll_interval_seconds, timeout_seconds,
-                                      progress=print)
-        else:
-            api_key = config.resolve_kie_key()
-            normalized = [
-                SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "kie", None, api_key),
-                              asset.label, asset.timestamp_seconds)
-                for asset in spec.assets
-            ]
-            spec.assets = normalized
-            request = compile_kie_request(spec)
-            result = run_kie_seedance(spec, request, api_key, poll_interval_seconds, timeout_seconds, progress=print)
-
-        # ---- 成片落盘（硬性约束：时效 URL 禁回写） ----
-        destination = Path(download_folder).expanduser() if str(download_folder).strip() else Path(_default_download_folder())
-        if not destination.is_absolute():
-            destination = (Path.cwd() / destination).resolve()
-        destination.mkdir(parents=True, exist_ok=True)
-        video_url = result["videoUrl"]
-        suffix = Path(video_url.split("?", 1)[0]).suffix or ".mp4"
-        local_path = destination / f"Seedance版_{result['taskId']}{suffix}"
-        local_path.write_bytes(request_bytes("GET", video_url, phase="下载成片"))
-
-        video_output = self._video_from_file(str(local_path))
-        info_lines = [
-            f"Seedance 2.5 完成（渠道 {channel} / {task_type}）",
-            f"任务ID: {result['taskId']}",
-            f"素材: {', '.join(asset.label for asset in spec.assets) or '无'}",
-            f"本地文件: {local_path}",
-        ]
-        if channel == "kie":
-            estimate = pricing.estimate_kie_credits(resolution, int(duration), motion_video is not None or any(t.get("kind") == "video" for t in tiles), 0)
-            if estimate:
-                info_lines.append(f"预估积分（输入时长未计入部分以账单为准）: ≈{estimate:.0f}")
-            if result.get("remainedCredits") is not None:
-                info_lines.append(f"剩余积分: {result['remainedCredits']}")
-            if result.get("lastFrameUrl"):
-                info_lines.append(f"尾帧图 URL（24h 有效，请尽快保存）: {result['lastFrameUrl']}")
-        else:
-            estimate = pricing.estimate_ark_price(resolution, int(duration), includes_video=input_seconds > 0, input_video_seconds=input_seconds)
-            if estimate:
-                info_lines.append(f"预估费用（仅展示，以账单为准）: ≈¥{estimate}")
-        return {"ui": {"text": [video_url, str(local_path)]}, "result": (video_output, "\n".join(info_lines))}
+    def _video_output_connected(self) -> bool:
+        """VIDEO 输出口是否已连线下游（如 SaveVideo）。API 直跑/检测不到时按未连接处理，自动落盘兜底。"""
+        try:
+            outputs = getattr(self, "outputs", None) or []
+            if outputs:
+                links = getattr(outputs[0], "links", None)
+                if links:
+                    return True
+        except Exception:
+            pass
+        return False
 
     @staticmethod
     def _video_from_file(path: str):
@@ -267,5 +303,75 @@ class AriadneSeedance25Video:
         return InputImpl.VideoFromFile(path)
 
 
-NODE_CLASS_MAPPINGS = {"AriadneSeedance25Video": AriadneSeedance25Video}
-NODE_DISPLAY_NAME_MAPPINGS = {"AriadneSeedance25Video": "Ariadne · Seedance 2.5 视频生成"}
+FREE_TASK_TYPE_LABELS = TASK_TYPE_LABELS[:3]  # 自由引用版只保留 全能参考/文生视频/多模态参考
+
+
+class AriadneSeedance25Free(AriadneSeedance25Video):
+    """Ariadne · Seedance 2.5 视频生成（自由引用版，2026-09-14 应用户要求复制的姊妹节点）。
+
+    与标准版差异：去掉首帧/尾帧/人物/服装/场景/动作/音频全部预设角色插座，仅保留三个自由图像
+    插座；role="free" 不在 ROLE_DUTY，编译层只编号（@图片N→@图像N/@ImageN）不生成素材职责句——
+    图像的身份与职责由用户在提示词里手工指定。
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {
+                    "multiline": True, "default": "", "defaultInput": True,
+                    "tooltip": "描述画面，并手工说明每张图像的身份/职责。图像按 图像1→图像2→图像3 顺序编号为 @图片N（提交自动编译为官方 @图像N）。",
+                }),
+                "task_type": (FREE_TASK_TYPE_LABELS, {"default": FREE_TASK_TYPE_LABELS[0]}),
+                "duration": ("INT", {"default": 10, "min": 4, "max": 30, "tooltip": "4-30 秒"}),
+                "resolution": (RESOLUTIONS, {"default": "720p"}),
+                "aspect_ratio": (ASPECTS, {"default": "9:16"}),
+                "generate_audio": ("BOOLEAN", {"default": True}),
+                "output_format": (["mp4", "mov"], {"default": "mp4"}),
+                "channel": (["ark(火山方舟直连)", "kie(Kie积分)"], {"default": "ark(火山方舟直连)"}),
+                "download_folder": ("STRING", {"default": _default_download_folder()}),
+                "ariadne_assets": ("STRING", {"default": "[]", "tooltip": "节点内瓦片素材（前端维护的 JSON，一般无需手改）"}),
+            },
+            "optional": {
+                "image_1": ("IMAGE", {"tooltip": "自由图像 1：身份/职责在提示词中手工说明，不做预设角色"}),
+                "image_2": ("IMAGE", {"tooltip": "自由图像 2：同上，编号在 图像1 之后"}),
+                "image_3": ("IMAGE", {"tooltip": "自由图像 3：同上，编号在 图像2 之后"}),
+                "return_last_frame": ("BOOLEAN", {"default": False, "tooltip": "额外返回尾帧图（仅 Kie 渠道支持；方舟渠道无对应字段）"}),
+                "poll_interval_seconds": ("INT", {"default": 5, "min": 2, "max": 60}),
+                "timeout_seconds": ("INT", {"default": 1800, "min": 60, "max": 7200}),
+            },
+        }
+
+    def generate(
+        self, prompt, task_type, duration, resolution, aspect_ratio, generate_audio,
+        output_format, channel, download_folder, ariadne_assets="[]",
+        image_1=None, image_2=None, image_3=None,
+        return_last_frame=False, poll_interval_seconds=5, timeout_seconds=1800,
+    ):
+        task_type = _task_type_of(task_type)
+        channel = "kie" if str(channel).startswith("kie") else "ark"
+        if channel == "kie" and (int(duration) < 4 or int(duration) > 30):
+            raise RuntimeError("Kie 渠道生成时长必须为 4-30 秒的整数（不支持自适应）。")
+        socket_assets: list[SeedanceAsset] = []
+        for images in (image_1, image_2, image_3):
+            if images is not None:
+                for path in media.images_to_files(images):
+                    socket_assets.append(SeedanceAsset("image", "free", path))
+        return _run_generation(
+            prompt=prompt, task_type=task_type, duration=int(duration), resolution=resolution,
+            aspect_ratio=aspect_ratio, generate_audio=generate_audio, output_format=output_format,
+            channel=channel, download_folder=download_folder, ariadne_assets=ariadne_assets,
+            socket_assets=socket_assets, motion_seconds=0.0, motion_video_connected=False,
+            return_last_frame=return_last_frame, poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=timeout_seconds, node=self,
+        )
+
+
+NODE_CLASS_MAPPINGS = {
+    "AriadneSeedance25Video": AriadneSeedance25Video,
+    "AriadneSeedance25Free": AriadneSeedance25Free,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "AriadneSeedance25Video": "Ariadne · Seedance 2.5 视频生成",
+    "AriadneSeedance25Free": "Ariadne · Seedance 2.5 视频生成（自由引用）",
+}
