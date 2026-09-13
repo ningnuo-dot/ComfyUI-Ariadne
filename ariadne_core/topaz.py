@@ -15,14 +15,18 @@ MODEL = "topaz/video-upscale"
 MAX_SOURCE_BYTES = 50 * 1024 * 1024  # 官方上限 50.0MB
 ACCEPTED_EXTS = (".mp4", ".mov", ".mkv")  # 官方接受 video/mp4、video/quicktime、video/x-matroska
 FACTOR_LABELS = {"1": "修复增强", "2": "2倍放大", "4": "4倍放大"}
+_LABEL_TO_FACTOR = {label: factor for factor, label in FACTOR_LABELS.items()}
 # 画布版估价口径（1×/2× 同价、4× 翻倍）；credits→¥ 单价同为画布版常数，均以账单为准。
 _CREDITS_PER_SECOND = {"1": 8, "2": 8, "4": 14}
 _CNY_PER_CREDIT = 0.036
 
 
 def parse_factor(widget_value) -> str:
-    """下拉值（如 '2(2倍放大)' 或裸 '2'）→ 官方枚举字符串 '1'/'2'/'4'。"""
-    factor = str(widget_value).split("(")[0].strip()
+    """下拉值（'2倍放大' / '2(2倍放大)' / 裸 '2'）→ 官方枚举字符串 '1'/'2'/'4'。"""
+    text = str(widget_value).strip()
+    if text in _LABEL_TO_FACTOR:
+        return _LABEL_TO_FACTOR[text]
+    factor = text.split("(")[0].strip()
     if factor not in FACTOR_LABELS:
         raise ValueError(f"放大倍数必须是 1/2/4，当前为 {widget_value!r}。")
     return factor

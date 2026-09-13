@@ -180,3 +180,9 @@ class TopazEndToEndMockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_parse_factor_accepts_clean_labels(self):
+        """下拉值改用干净标签（无括号重复数字）后仍能解析；旧格式与裸倍数保持兼容。"""
+        self.assertEqual(topaz.parse_factor("修复增强"), "1")
+        self.assertEqual(topaz.parse_factor("2倍放大"), "2")
+        self.assertEqual(topaz.parse_factor("4倍放大"), "4")

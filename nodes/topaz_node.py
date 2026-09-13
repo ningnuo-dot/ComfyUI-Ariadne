@@ -39,7 +39,7 @@ class AriadneTopazUpscale:
         return {
             "required": {
                 "source_video": ("VIDEO", {"tooltip": "待超分视频（Topaz 官方只接受 MP4/MOV/MKV，≤50MB）"}),
-                "upscale_factor": (["1(修复增强)", "2(2倍放大)", "4(4倍放大)"], {"default": "2(2倍放大)"}),
+                "upscale_factor": (list(topaz_core.FACTOR_LABELS.values()), {"default": "2倍放大"}),
                 "nsfw_checker": ("BOOLEAN", {"default": True,
                                              "tooltip": "内容审核（官方接入页字段，Playground 默认开）。自己生成的素材被云端误拦时可关。"}),
                 "download_folder": ("STRING", {"default": _default_download_folder()}),
