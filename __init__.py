@@ -6,6 +6,7 @@
 - Ariadne · Kie 图生图（五家服务商）
 - Ariadne · Omni 1.1（Kie：参考素材/首尾帧/固定角色）
 - Ariadne · 一瞬入画（视频/多图 → 高保真场景图，gpt-image-2）
+- Ariadne · Topaz 视频超分（Kie：topaz/video-upscale，1×修复/2×/4×）
 
 Omni 不在本包：官方 Interactions API 已有核心 partner 节点（comfy_api_nodes/nodes_gemini.py
 GeminiVideoOmniV2）与本机 ComfyUI-Kie 包 KieOmniVideo 两条现成路线，不重复造轮子。
@@ -41,6 +42,7 @@ _kling = _load("kling_node")
 _image = _load("image_node")
 _omni = _load("omni_node")
 _instant = _load("instant_painting_node")
+_topaz = _load("topaz_node")
 
 NODE_CLASS_MAPPINGS = {}
 NODE_CLASS_MAPPINGS.update(_seedance.NODE_CLASS_MAPPINGS)
@@ -49,6 +51,7 @@ NODE_CLASS_MAPPINGS.update(_kling.NODE_CLASS_MAPPINGS)
 NODE_CLASS_MAPPINGS.update(_image.NODE_CLASS_MAPPINGS)
 NODE_CLASS_MAPPINGS.update(_omni.NODE_CLASS_MAPPINGS)
 NODE_CLASS_MAPPINGS.update(_instant.NODE_CLASS_MAPPINGS)
+NODE_CLASS_MAPPINGS.update(_topaz.NODE_CLASS_MAPPINGS)
 
 NODE_DISPLAY_NAME_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS.update(_seedance.NODE_DISPLAY_NAME_MAPPINGS)
@@ -57,10 +60,11 @@ NODE_DISPLAY_NAME_MAPPINGS.update(_kling.NODE_DISPLAY_NAME_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(_image.NODE_DISPLAY_NAME_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(_omni.NODE_DISPLAY_NAME_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(_instant.NODE_DISPLAY_NAME_MAPPINGS)
+NODE_DISPLAY_NAME_MAPPINGS.update(_topaz.NODE_DISPLAY_NAME_MAPPINGS)
 
 WEB_DIRECTORY = "./web/js"
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY", "__version__"]
 
 def _load_root(name: str):

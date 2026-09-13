@@ -1,5 +1,8 @@
-/* Ariadne 前端样式：统一半透明白叠层 + 亮边 + 主题色高亮（画布插件同款视觉语言）。 */
+/* Ariadne 前端样式：统一半透明白叠层 + 亮边 + 主题色高亮。
+   创作台视觉对齐无限画布原版（seedance-2.5/src/index.tsx）密度与结构：
+   素材 52px 缩略条、行内 @胶囊、单行底栏、价格圆钮；说明一律进悬停。 */
 
+/* ---- 节点内素材瓦片（展开参数态）与通用按钮 ---- */
 .ariadne-tiles-wrap { box-sizing: border-box; padding: 2px 0; font: 12px/1.5 sans-serif; color: #d8d8d8; }
 .ariadne-tiles-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .ariadne-tiles-summary { color: #8ab4ff; }
@@ -9,6 +12,8 @@
     border: 1px solid #4a5058; border-radius: 12px; background: #33363c; max-width: 100%;
 }
 .ariadne-tile-trimmed { border-color: #2fa46a; }
+.ariadne-tile-locked { border-color: #b8860b; }
+.ariadne-tile-socket { border-style: dashed; border-color: #3f6ea5; }
 .ariadne-tile-mark { color: #ffd166; font-weight: 600; }
 .ariadne-tile-trimmed .ariadne-tile-mark { color: #3ddc84; }
 .ariadne-tile-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -24,51 +29,112 @@
     padding: 2px 10px; cursor: pointer; font: 12px sans-serif;
 }
 .ariadne-btn:hover { background: #464c56; }
+.ariadne-btn-accent { border-color: #8ab4ff; color: #bcd3ff; background: #2c3a55; }
+.ariadne-btn-accent:hover { background: #35466a; }
 
-.ariadne-prompt {
-    box-sizing: border-box; width: 100%; min-height: 96px; padding: 8px 10px;
-    border: 1px solid #4a4f59; border-radius: 8px; background: #303238; color: #eee;
-    font: 13px/1.6 sans-serif; white-space: pre-wrap; outline: none; overflow: auto;
-    text-align: left; user-select: text;
-}
-.ariadne-prompt:empty::before { content: attr(data-placeholder); color: #888; }
-.ariadne-chip {
-    display: inline-block; margin: 0 1px; padding: 0 6px; border-radius: 10px;
-    color: #fff; font: 12px/1.8 sans-serif; user-select: none;
-}
-
+/* 节点上的 @胶囊选单（胶囊提示词 @ 唤出） */
 .ariadne-menu {
     position: fixed; z-index: 10000; min-width: 240px; max-width: 340px; max-height: 240px; overflow: auto;
-    background: #2a2d33; border: 1px solid #555c66; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    background: rgba(23, 24, 25, 0.94); border: 1px solid #555c66; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
     padding: 4px; color: #eee; font: 12px sans-serif;
 }
 .ariadne-menu-item { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .ariadne-menu-item:hover { background: #3d434c; }
 
+/* 节点本体：费用预估 + 创作台按钮行 */
 .ariadne-estimate { padding: 2px 0; color: #8ab4ff; font: 12px/1.5 sans-serif; white-space: normal; }
+/* 按钮行：按钮居中放大 20%；费用预估下沉到底部与 Ariadne 徽标同一水平线（贴右） */
+.ariadne-dockbtnrow { position: relative; box-sizing: border-box; display: flex; gap: 6px; padding: 2px 0; }
+.ariadne-dockbtnrow .ariadne-btn-accent {
+    margin: 0 auto; padding: 4px 14px; min-height: 30px;
+    font: 600 14.5px/1.5 sans-serif;
+}
+.ariadne-dockbtnrow .ariadne-estimate {
+    position: absolute; top: calc(100% + 10px); right: -7px; padding: 0;
+    white-space: nowrap; font-size: 14.5px; font-weight: 600;
+}
 
+/* 紧凑节点：插座已连标识条（素材行撤出后的宿主） */
+.ariadne-sockets-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; box-sizing: border-box; }
+
+/* 裁剪参考视频浮层（原版布局：左预览 + 顶时间轴 + 右控制列） */
 .ariadne-overlay {
     position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.55);
+    background: rgba(0,0,0,.62);
 }
-.ariadne-dialog {
-    width: min(720px, 92vw); padding: 14px; border-radius: 14px; border: 1px solid #5a6270;
-    background: rgba(38,41,47,.98); color: #eee; font: 13px/1.6 sans-serif; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+.ariadne-trim2 {
+    width: min(1120px, 94vw);
+    background: rgba(30, 32, 37, 0.98); color: #e5e9f0;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    font: 14px/1.5 sans-serif;
+    padding: 14px 18px 10px;
+    display: flex; flex-direction: column; gap: 10px;
 }
-.ariadne-dialog-title { font-weight: 600; margin-bottom: 8px; }
-.ariadne-trim-video { width: 100%; max-height: 46vh; background: #000; border-radius: 8px; }
-.ariadne-trim-timeline {
-    position: relative; height: 26px; margin: 10px 0 6px; border-radius: 6px;
-    background: linear-gradient(90deg, #3a3f47, #2c3037); border: 1px solid #4a5058; cursor: pointer;
+.ariadne-trim2-head { display: flex; align-items: center; gap: 10px; }
+.ariadne-trim2-head strong { font-size: 15px; color: #fff; }
+.ariadne-trim2-sub { color: rgba(255,255,255,0.5); font-size: 12px; }
+.ariadne-trim2-back { min-width: 34px; }
+.ariadne-trim2-main { display: flex; gap: 14px; min-height: 0; }
+.ariadne-trim2-preview {
+    position: relative; flex: 0 1 auto; height: 420px; min-width: 180px;
+    aspect-ratio: 9 / 16; max-width: 40%;
+    border-radius: 12px; overflow: hidden;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
 }
-.ariadne-trim-keep { position: absolute; top: 0; bottom: 0; background: rgba(63,168,120,.4); border-left: 2px solid #4aa3ff; border-right: 2px solid #ff7ab8; }
-.ariadne-trim-handle { position: absolute; top: -4px; bottom: -4px; width: 8px; margin-left: -4px; border-radius: 4px; background: #4aa3ff; cursor: ew-resize; }
-.ariadne-trim-handle.ariadne-trim-end { background: #ff7ab8; }
-.ariadne-trim-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ariadne-trim-range { color: #8ab4ff; }
-.ariadne-trim-hint { margin-top: 8px; color: #ffb35c; font-size: 12px; }
-.ariadne-trim-mode { background: #3a3f47; color: #eee; border: 1px solid #566070; border-radius: 8px; padding: 2px 6px; font: 12px sans-serif; }
+.ariadne-trim2-preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ariadne-trim2-rangebadge {
+    position: absolute; right: 8px; top: 8px; padding: 2px 9px; border-radius: 999px;
+    background: rgba(15,17,20,0.62); border: 1px solid rgba(255,255,255,0.16);
+    color: #fff; font-size: 11px; pointer-events: none;
+}
+.ariadne-trim2-controls { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.ariadne-trim2-timeline {
+    position: relative; height: 44px; border-radius: 10px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    touch-action: none; overflow: hidden;
+}
+.ariadne-trim2-timeline.manual { cursor: crosshair; }
+.ariadne-trim2-band {
+    position: absolute; top: 4px; bottom: 4px;
+    background: linear-gradient(180deg, rgba(216,255,0,0.28), rgba(216,255,0,0.14));
+    border: 1px solid rgba(216,255,0,0.55); border-radius: 7px;
+    pointer-events: none;
+}
+.ariadne-trim2-timeline.manual .ariadne-trim2-band { cursor: grab; }
+.ariadne-trim2-tick > div { position: absolute; top: 0; bottom: 0; width: 1px; background: #f59e0bb0; pointer-events: none; }
+.ariadne-trim2-handle {
+    position: absolute; top: 2px; bottom: 2px; width: 10px; border-radius: 4px;
+    cursor: default; touch-action: none;
+}
+.ariadne-trim2-timeline.manual .ariadne-trim2-handle { cursor: ew-resize; }
+.ariadne-trim2-handle.ariadne-trim2-start {
+    left: -2px; background: linear-gradient(180deg, #7dd3fc, #38bdf8);
+    box-shadow: 0 0 8px rgba(56,189,248,0.45);
+}
+.ariadne-trim2-handle.ariadne-trim2-end {
+    right: -2px; background: linear-gradient(180deg, #f9a8d4, #f472b6);
+    box-shadow: 0 0 8px rgba(244,114,182,0.45);
+}
+.ariadne-trim2-skim {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+    border-left: 1px dashed rgba(255,255,255,0.75); display: none; pointer-events: none;
+}
+.ariadne-trim2-playhead {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
+    background: rgba(255,255,255,0.85); box-shadow: 0 0 6px rgba(255,255,255,0.5);
+    pointer-events: none;
+}
+.ariadne-trim2-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ariadne-trim2-timetext { color: rgba(255,255,255,0.6); font-size: 12px; }
+.ariadne-trim2-modes { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255,255,255,0.05); }
+.ariadne-trim2-msg { color: rgba(255,255,255,0.55); font-size: 12px; }
+.ariadne-trim2-error { color: #f87171; font-size: 12px; flex: 1 1 auto; }
+.ariadne-trim2-actionsrow { justify-content: flex-end; }
+.ariadne-trim2-apply { min-width: 120px; }
+.ariadne-trim2-hint { color: #ffb35c; font-size: 12px; }
 
+/* 侧栏工作台（全局配置） */
 .ariadne-workbench { padding: 12px 14px; font: 13px/1.7 sans-serif; color: #d8d8d8; }
 .ariadne-workbench h3 { margin: 6px 0 4px; font-size: 14px; color: #fff; }
 .ariadne-workbench h4 { margin: 10px 0 2px; font-size: 12px; color: #8ab4ff; }
@@ -78,5 +144,307 @@
     border: 1px solid #4a5058; border-radius: 8px; background: #303238; color: #eee; font: 12px sans-serif;
 }
 .ariadne-workbench-actions { display: flex; gap: 8px; margin: 10px 0; }
+.ariadne-workbench-modelrow { display: flex; gap: 6px; align-items: stretch; }
+.ariadne-workbench-modelrow input { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.ariadne-workbench-modelrow .ariadne-btn { flex: 0 0 auto; white-space: nowrap; }
 .ariadne-workbench-log { background: #26282d; border-radius: 8px; padding: 8px; min-height: 20px; white-space: pre-wrap; color: #9fd6a8; }
 .ariadne-workbench p { margin: 6px 0; font-size: 12px; color: #b8b8b8; }
+
+/* ============================================================
+   创作台面板（零高度锚点挂在节点底部；面板绝对定位悬挂在节点下方，
+   水平居中于节点；锚点由画布前端定位，随节点拖动/平移缩放自动跟随）
+   ============================================================ */
+.ariadne-workbench-anchor { position: relative; height: 0; }
+.ariadne-workbench-panel {
+    position: absolute; top: 34px; left: 50%; transform: translateX(-50%);
+    width: 1076px; max-width: calc(100vw - 120px);
+    background: rgba(20, 22, 26, 0.72);
+    backdrop-filter: blur(40px) saturate(160%);
+    -webkit-backdrop-filter: blur(40px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    z-index: 20;
+}
+.ariadne-dock {
+    display: flex; flex-direction: column;
+    font: 16px/1.45 sans-serif; color: #d8d8d8;
+}
+.ariadne-dock-title { font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+.ariadne-dock-tabs { display: flex; gap: 4px; }
+.ariadne-dock-tab {
+    min-height: 36px; padding: 4px 14px; border: 0; border-radius: 999px;
+    background: transparent; color: rgba(216, 216, 216, 0.62); cursor: pointer; font: 500 12px sans-serif;
+}
+.ariadne-dock-tab:hover { background: rgba(255, 255, 255, 0.08); }
+.ariadne-dock-tab.active { background: rgba(255, 255, 255, 0.1); color: #fff; font-weight: 650; }
+.ariadne-dock-actions { margin-left: auto; }
+.ariadne-dock-iconbtn {
+    min-height: 32px; padding: 4px 12px; border: 0; border-radius: 8px;
+    background: transparent; color: rgba(216, 216, 216, 0.62); cursor: pointer; font: 12px sans-serif;
+}
+.ariadne-dock-iconbtn:hover { background: rgba(255, 255, 255, 0.08); }
+.ariadne-dock-body {
+    height: 500px;       /* 固定可视高度：各页 absolute 布局依赖 */
+    position: relative;
+}
+.ariadne-dock-empty { padding: 26px; color: #93a0b4; white-space: pre-line; font-size: 13px; }
+.ariadne-dock-page { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.ariadne-dock-scroll {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 20px 10px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.ariadne-dock-note { color: #ffd166; font-size: 12px; white-space: pre-wrap; }
+
+/* ---- 创作页 ---- */
+.ariadne-pills { display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); }
+.ariadne-pills-modes { align-self: flex-start; }
+.ariadne-pill {
+    min-height: 32px; padding: 5px 14px; border: 0; border-radius: 999px;
+    background: transparent; color: rgba(216, 216, 216, 0.78); cursor: pointer; font: 500 13.5px sans-serif; white-space: nowrap;
+}
+.ariadne-pill:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.ariadne-pill.active { background: rgba(255, 255, 255, 0.16); color: #fff; font-weight: 650; }
+.ariadne-pill:disabled { opacity: 0.38; cursor: not-allowed; }
+.ariadne-pill-mode { font-size: 14px; font-weight: 500; }
+.ariadne-pill-accent { background: rgba(255, 255, 255, 0.12); color: #fff; font-weight: 650; }
+.ariadne-pill-accent:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
+.ariadne-pill-apply { background: rgba(216, 255, 0, 0.14); color: #d8ff00; font-weight: 650; }
+.ariadne-pill-apply:hover:not(:disabled) { background: rgba(216, 255, 0, 0.24); }
+
+/* 素材缩略条：52px 芯片 + @标签悬浮层（原版同款） */
+.ariadne-dock-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.ariadne-dock-chip {
+    position: relative; flex: 0 0 52px; width: 52px; height: 52px; padding: 0;
+    overflow: hidden; border-radius: 7px; border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06); cursor: grab;
+}
+.ariadne-dock-chip:hover { border-color: rgba(255, 255, 255, 0.45); }
+.ariadne-dock-chip.socket { border-style: dashed; }
+.ariadne-dock-chip.locked { border-color: #b8860b; }
+.ariadne-dock-chip.trimmed { border-color: #2fa46a; }
+.ariadne-dock-chipthumb {
+    position: absolute; inset: 0; display: grid; place-items: center; background: #171819;
+}
+.ariadne-dock-chipthumb img, .ariadne-dock-chipthumb video {
+    width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none;
+}
+.ariadne-dock-chipicon { font-size: 18px; color: #aeb4bd; }
+.ariadne-dock-chiptag {
+    position: absolute; inset: auto 0 0; padding: 1px 3px; background: rgba(0, 0, 0, 0.6);
+    color: #fff; font-size: 9px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+/* 芯片悬停操作菜单 */
+.ariadne-dock-chipmenu {
+    position: fixed; z-index: 9700; min-width: 150px; padding: 4px;
+    background: rgba(23, 24, 25, 0.96); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 9px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font: 12px sans-serif; color: #d8d8d8;
+}
+.ariadne-dock-chipmenu-item {
+    display: block; width: 100%; text-align: left; padding: 6px 9px; border: 0; border-radius: 6px;
+    background: transparent; color: inherit; cursor: pointer;
+}
+.ariadne-dock-chipmenu-item:hover { background: rgba(255, 255, 255, 0.1); }
+
+/* 提示词：无边框行内编辑 + @胶囊（弹性撑满素材条以下的剩余空间；外观与面板表面一致，不单独垫色） */
+.ariadne-dock-promptline {
+    flex: 1 1 auto; min-height: 96px; max-height: 400px; overflow-y: auto; padding: 10px 12px;
+    white-space: pre-wrap; outline: none; cursor: text; line-height: 1.5;
+    background: transparent; border: 0; font-size: 14px;
+}
+.ariadne-dock-promptline:empty::before { content: attr(data-placeholder); color: rgba(255, 255, 255, 0.4); pointer-events: none; }
+.ariadne-dock-promptline:focus { background: transparent; }  /* 聚焦不改底色（用户要求无变化） */
+
+/* ---- 单行底栏（参数摘要｜✧｜状态▾历史｜开关｜价格+生成） ---- */
+.ariadne-dock-bar {
+    flex: none; display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    padding: 10px 20px 22px;
+}
+.ariadne-dock-statuscluster { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.ariadne-dock-plainbtn {
+    border: 0; background: transparent; color: rgba(216, 216, 216, 0.62);
+    cursor: pointer; font: 12px sans-serif; padding: 4px 6px; border-radius: 7px; min-height: 32px;
+}
+.ariadne-dock-plainbtn:hover { background: rgba(255, 255, 255, 0.08); }
+.ariadne-dock-paramscol { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.ariadne-dock-params { font-size: 12.5px; color: rgba(255, 255, 255, 0.88); }
+.ariadne-dock-channel { font-size: 10px; opacity: 0.5; padding: 0 6px; line-height: 1.2; }
+.ariadne-dock-opticon {
+    font-size: 18px; line-height: 1; width: 26px; text-align: center;
+    padding: 4px 2px !important; border-radius: 8px !important; min-height: 28px !important;
+}
+.ariadne-dock-opticon.pending { color: #d8ff00; animation: ariadne-pulse 1.2s ease-in-out infinite; }
+@keyframes ariadne-pulse { 50% { opacity: 0.55; } }
+.ariadne-dock-opticon.pending { color: #d8ff00; }
+.ariadne-dock-status { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ariadne-dock-barright { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.ariadne-dock-minitoggle {
+    display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.13); border-radius: 999px;
+    background: transparent; color: rgba(216, 216, 216, 0.62); cursor: pointer;
+    font: 500 12px sans-serif;
+}
+.ariadne-dock-minitoggle.active {
+    border-color: rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.12);
+    color: #fff; font-weight: 650;
+}
+.ariadne-dock-minitoggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 价格 + 圆形生成钮（原版同款） */
+.ariadne-dock-generate {
+    margin-left: 6px; display: flex; align-items: center; gap: 9px; min-height: 42px;
+    padding: 4px 5px 4px 16px; border: 1px solid rgba(255, 255, 255, 0.53); border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); color: #fff; cursor: pointer; font: 650 13.5px sans-serif;
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.3);
+}
+.ariadne-dock-generate:hover { background: rgba(255, 255, 255, 0.14); }
+.ariadne-dock-priceknob {
+    display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+    background: #f8fafc; color: #171819;
+}
+
+/* ---- 提示词工作台页 ---- */
+.ariadne-dock-optstatus { display: flex; align-items: baseline; gap: 12px; }
+.ariadne-dock-optphase { font-weight: 650; color: #fff; font-size: 13px; }
+.ariadne-dock-optmodel { color: rgba(255, 255, 255, 0.4); font-size: 11px; }
+.ariadne-dock-optconfig { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 8px; }
+.ariadne-dock-optconfig input {
+    flex: 1 1 180px; min-width: 160px; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06); color: #eee; font: 12px sans-serif;
+}
+.ariadne-dock-optcols { display: grid; grid-template-columns: 1fr 1fr 0.9fr; gap: 10px; align-items: stretch; }
+.ariadne-dock-optcols-single { display: flex; flex-direction: column; gap: 8px; }
+.ariadne-dock-optcol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ariadne-dock-basis { border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 8px 10px; }
+.ariadne-dock-basis-title { font-weight: 650; color: rgba(255, 255, 255, 0.8); margin-bottom: 4px; font-size: 12px; }
+.ariadne-dock-basis-list { margin: 0; padding-left: 18px; color: rgba(255, 255, 255, 0.55); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.ariadne-dock-result {
+    flex: 1 1 auto; min-height: 160px; max-height: 400px; overflow: auto; white-space: pre-wrap;
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 9px; background: rgba(255, 255, 255, 0.04);
+    padding: 8px 10px; font: 13px/1.6 sans-serif; color: #e8eef7;
+}
+.ariadne-dock-result-idle { color: rgba(255, 255, 255, 0.4); }
+.ariadne-dock-result-error { color: #ff9c9c; border-color: rgba(160, 69, 69, 0.6); }
+.ariadne-dock-result-preview { border-style: dashed; }
+.ariadne-dock-stale { color: #ffb35c; font-weight: 400; font-size: 11px; }
+.ariadne-dock-stalebar {
+    border: 1px solid rgba(184, 134, 11, 0.7); border-radius: 8px; background: rgba(184, 134, 11, 0.12);
+    color: #ffd08a; font-size: 12px; padding: 6px 8px;
+}
+.ariadne-dock-previewbar { display: flex; align-items: center; gap: 8px; color: #ffb35c; font-size: 12px; }
+.ariadne-dock-history { display: flex; flex-direction: column; gap: 4px; }
+.ariadne-dock-history-list { display: flex; flex-direction: column; gap: 4px; }
+.ariadne-dock-history-item {
+    display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 999px;
+    padding: 3px 6px 3px 12px; background: rgba(255, 255, 255, 0.04);
+}
+.ariadne-dock-history-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.ariadne-dock-history-at { color: rgba(255, 255, 255, 0.4); font-size: 10px; flex: none; }
+.ariadne-dock-barnote { color: rgba(255, 255, 255, 0.4); font-size: 11px; }
+.ariadne-dock-fieldlabel { font-weight: 600; color: rgba(255, 255, 255, 0.8); font-size: 12px; display: flex; gap: 10px; align-items: baseline; }
+.ariadne-dock-fieldnote { color: rgba(255, 255, 255, 0.4); font-weight: 400; font-size: 11px; }
+
+/* ---- 输出参数页 ---- */
+.ariadne-dock-slider { display: flex; align-items: center; gap: 10px; max-width: 460px; }
+.ariadne-dock-slider input[type="range"] { flex: 1; accent-color: #d8d8d8; }
+.ariadne-dock-slider-value { min-width: 76px; color: rgba(255, 255, 255, 0.62); font-size: 12px; }
+.ariadne-dock-mini {
+    min-height: 28px; padding: 2px 9px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
+    background: transparent; color: rgba(255, 255, 255, 0.62); cursor: pointer; font: 11px sans-serif;
+}
+.ariadne-dock-mini:hover { background: rgba(255, 255, 255, 0.1); }
+
+/* ---- 浮动面板补充（跟随节点、尺寸可调） ---- */
+
+/* 芯片悬停大预览浮层（原版 showPreview 同款：长边 285 + 底部操作行） */
+.ariadne-dock-preview {
+    position: fixed; z-index: 9700; width: 376px; padding: 8px;
+    background: rgba(23, 24, 25, 0.96); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55); font: 12px sans-serif; color: #d8d8d8;
+}
+.ariadne-dock-preview-media {
+    height: 276px; border-radius: 8px; overflow: hidden; background: #171819;
+    display: grid; place-items: center;
+}
+.ariadne-dock-preview-media img, .ariadne-dock-preview-media video {
+    width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none;
+}
+.ariadne-dock-preview-media .ariadne-dock-chipicon { font-size: 34px; color: #aeb4bd; }
+.ariadne-dock-preview-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }
+
+/* ---- 输出参数页：原版横向布局 ---- */
+.ariadne-dock-params-page { gap: 14px; }
+.ariadne-dock-paramsgrid { display: grid; grid-template-columns: minmax(230px, 1fr) 1.5fr; gap: 14px 26px; align-items: start; }
+.ariadne-dock-paramscol-page { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ariadne-dock-slider-wide { max-width: none; }
+.ariadne-dock-aspects { display: flex; flex-direction: column; gap: 6px; }
+.ariadne-dock-aspects-row { display: flex; gap: 6px; }
+.ariadne-dock-aspect {
+    width: 86px; height: 68px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    border: 1px solid transparent; border-radius: 10px; background: transparent;
+    color: #d8d8d8; cursor: pointer; padding: 0;
+}
+.ariadne-dock-aspect:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.ariadne-dock-aspect.active { border-color: rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.08); }
+.ariadne-dock-aspect:disabled { opacity: 0.38; cursor: not-allowed; }
+.ariadne-dock-aspect-shape {
+    display: block; border: 2px solid rgba(255, 255, 255, 0.6); border-radius: 3px;
+}
+.ariadne-dock-aspect.active .ariadne-dock-aspect-shape { border-color: #fff; background: rgba(255, 255, 255, 0.14); }
+.ariadne-dock-aspect-label { font-size: 11px; line-height: 1; color: rgba(255, 255, 255, 0.7); }
+.ariadne-dock-aspect.active .ariadne-dock-aspect-label { color: #fff; font-weight: 650; }
+.ariadne-dock-advgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+/* ---- 面板跟随 + 交互补充 ---- */
+
+/* 模式页签拦截态 */
+.ariadne-pill-mode.blocked { opacity: 0.32; cursor: not-allowed; text-decoration: line-through; text-decoration-color: rgba(255, 107, 107, 0.7); }
+.ariadne-pill-mode.blocked:hover { background: transparent; }
+
+/* 瓦片拖动排序 */
+.ariadne-dock-chip.dragging { opacity: 0.35; }
+.ariadne-dock-chip.drop-target { border-color: #d8ff00; border-style: solid; box-shadow: 0 0 0 2px rgba(216, 255, 0, 0.35); }
+
+/* 创作依据一行 */
+.ariadne-dock-basisline {
+    font-size: 11px; color: rgba(255, 255, 255, 0.45); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; cursor: default;
+}
+
+/* 优化页两个输入区同底色 */
+.ariadne-dock-optcol textarea.ariadne-dock-prompt {
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px; color: #e8eef7; resize: vertical;
+}
+.ariadne-dock-optcol textarea.ariadne-dock-prompt:focus { border-color: rgba(255, 255, 255, 0.28); }
+
+/* ✧ 一键优化按钮 */
+.ariadne-dock-opticon.pending { color: #ffb35c; }
+
+/* 参数页：一屏网格（无滚动条） */
+.ariadne-dock-params-page { overflow: hidden; gap: 18px; justify-content: space-evenly; }
+.ariadne-dock-params-page .ariadne-dock-pgrid { grid-template-columns: 1fr 1fr 1fr; align-items: stretch; }
+.ariadne-dock-colspacer { flex: 1 1 auto; min-height: 8px; }
+.ariadne-dock-pgrid { gap: 20px 32px !important; }
+.ariadne-dock-pcol { gap: 12px !important; }
+.ariadne-dock-pgrid { display: grid; grid-template-columns: 1fr 1.1fr 1.3fr; gap: 12px 20px; align-items: start; }
+.ariadne-dock-pcol { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+.ariadne-dock-pcol-wide { grid-column: span 1; }
+.ariadne-dock-pcol .ariadne-dock-slider { width: 100%; }
+/* 参数页列内控件拉伸铺满列宽，消除列内右侧留白 */
+.ariadne-dock-params-page .ariadne-dock-pcol .ariadne-pills { align-self: stretch; }
+.ariadne-dock-params-page .ariadne-dock-pcol .ariadne-pills .ariadne-pill { flex: 1 1 0; }
+.ariadne-dock-params-page .ariadne-dock-pcol .ariadne-dock-linebtn { align-self: stretch; }
+
+/* 底栏任务状态：纯文字不可点 */
+.ariadne-dock-status { color: rgba(255, 255, 255, 0.55); font-size: 12.5px; margin-top: 5px; }
+
+/* 保存文件夹：极简线条框按钮 */
+.ariadne-dock-linebtn {
+    padding: 6px 14px; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px;
+    background: transparent; color: rgba(255, 255, 255, 0.75); cursor: pointer; font: 12px sans-serif;
+}
+.ariadne-dock-linebtn:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }

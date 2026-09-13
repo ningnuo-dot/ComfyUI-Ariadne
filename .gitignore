@@ -10,3 +10,6 @@ __pycache__/
 output/
 input/
 *.log
+
+# 会话监控临时目录
+.zcode-supervisor/

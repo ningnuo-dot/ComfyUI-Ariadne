@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>输出参数页布局验证</title>
+<link rel="stylesheet" href="../../web/js/ariadne.css">
+<style>
+  body { margin: 0; background: #1b1d20; }
+  #stage { position: relative; width: 1076px; margin: 30px auto; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+  const widgets = [
+    { name: "prompt", value: "@视频1 走拍" },
+    { name: "task_type", value: "auto(全能参考)" },
+    { name: "resolution", value: "720p" },
+    { name: "duration", value: 10 },
+    { name: "aspect_ratio", value: "9:16" },
+    { name: "channel", value: "ark(火山方舟直连)" },
+    { name: "output_format", value: "mp4" },
+    { name: "download_folder", value: "" },
+    { name: "return_last_frame", value: false },
+    { name: "ariadne_assets", value: JSON.stringify([{ name: "dance.mp4", kind: "video", role: "", label: "视频1", seconds: 5 }]) },
+  ];
+  const upstream = { widgets: [{ name: "video", value: "dance.mp4" }] };
+  const node = {
+    widgets,
+    inputs: [{ name: "motion_video", link: 1 }],
+    getInputNode: () => upstream,
+    size: [520, 300], graph: null, properties: {},
+  };
+  const mod = await import("../../web/js/ariadne_workbench.js");
+  mod.mountPanel(document.getElementById("stage"), node, () => {});
+  window.__ariadneTest = { node };
+  // 停在创作页（默认），供删除复现实验用
+  setTimeout(() => {
+    const editor = document.querySelector(".ariadne-dock-promptline");
+    window.__promptProbe = () => editor.innerText;
+    window.__deleteAll = () => {
+      editor.textContent = "";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      editor.dispatchEvent(new Event("blur"));
+    };
+  }, 100);
+</script>
+</body>
+</html>

@@ -22,9 +22,12 @@
 
 ## 测试与验收
 
-- 离线单测：`D:\GitHub\ComfyUI\.venv\Scripts\python.exe -m unittest discover -s tests`（41 项，全 mock 不付费）。
-- 加载冒烟：候选端口起第二实例 → `/object_info` 查 Ariadne 四节点 + `/extensions` 查 ariadne_ui.js。
+- 离线单测：`D:\GitHub\ComfyUI\.venv\Scripts\python.exe -m unittest discover -s tests`（83 项，全 mock 不付费）。
+- 前端契约单测：`node --test tests/js/ariadne_frontend.test.mjs`（24 项：适配器/优化客户端/胶囊引用切分/画幅锁定/批量展开）。
+- 优化器流式链路（零付费）：先起 `python tests/mock_optimizer_server.py 8192`，再经 `/ariadne/config` 临时写入 mock base_url/model/key，POST `/ariadne/optimize` 验 SSE；用后恢复配置（api_key 仅在等于 mock 值时清除）。
+- 加载冒烟：候选端口起第二实例 → `/object_info` 查 Ariadne 节点 + `/extensions` 查 ariadne_*.js（5 个模块）。
 - 真实付费生成（方舟/Kie 扣费）只能由用户亲自触发；Agent 不得自行 Queue 生成类工作流。
+- 前端已知坑：IAB/某些浏览器对 `/extensions/*.js` 的启发式缓存可能吃掉热更新——真实验收须开新标签页或 Ctrl+F5。
 
 ## 回退
 

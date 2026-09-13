@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from pathlib import Path
@@ -114,6 +115,26 @@ def register_routes():
                 except Exception as error:  # noqa: BLE001
                     payload["probeError"] = str(error)
             return web.json_response(payload)
+
+    # ---- 打开素材文件夹：让用户直接看到 input/ariadne 下的原始文件（可手动清理） ----
+    if _ensure("POST", "/ariadne/open_assets_folder"):
+        @routes.post("/ariadne/open_assets_folder")
+        async def ariadne_open_assets_folder(request):
+            if not _loopback_only(request):
+                return web.json_response({"error": "仅限本机访问"}, status=403)
+            target = _input_base() / "ariadne"
+            target.mkdir(parents=True, exist_ok=True)
+            try:
+                if hasattr(os, "startfile"):  # Windows：资源管理器打开
+                    os.startfile(str(target))  # noqa: S606
+                else:
+                    import subprocess
+                    import sys
+                    opener = "open" if sys.platform == "darwin" else "xdg-open"
+                    subprocess.Popen([opener, str(target)])
+                return web.json_response({"ok": True, "path": str(target)})
+            except Exception as error:  # noqa: BLE001
+                return web.json_response({"error": f"打开失败：{error}"}, status=500)
 
     # ---- 裁剪：切点检测 + 执行 ----
     if _ensure("POST", "/ariadne/trim"):
@@ -229,8 +250,47 @@ def register_routes():
             except Exception as error:  # noqa: BLE001
                 return web.json_response({"error": str(error)}, status=400)
 
-    # ---- 提示词优化（服务端中转 OpenAI 兼容接口，非流式 v0.1；loopback 必须守卫——
-    #      base_url 来自请求体，缺守卫即 SSRF + 盗用本机 Key 白嫖代理） ----
+    # ---- 优化器模型列表代理（原版拉取模型能力；表单里填的站点/Key 可直接用于拉取，
+    #      但只在本次请求内使用，不落盘——Key 始终不进浏览器存储） ----
+    if _ensure("POST", "/ariadne/optimize_models"):
+        @routes.post("/ariadne/optimize_models")
+        async def ariadne_optimize_models(request):
+            if not _loopback_only(request):
+                return web.json_response({"error": "仅限本机访问"}, status=403)
+            from ariadne_core.seedance import optimizer as optimizer_core
+
+            try:
+                body = await _json_body(request)
+            except ValueError as error:
+                return web.json_response({"error": str(error)}, status=400)
+            opt = config.load_config().get("optimizer") or {}
+            base_url = optimizer_core.normalize_base_url(str(body.get("base_url") or opt.get("base_url") or ""))
+            api_key = str(body.get("api_key") or opt.get("api_key") or "").strip()
+            if not (base_url and api_key):
+                return web.json_response({"error": "请先填写站点与 API Key 再拉取"}, status=400)
+            if not optimizer_core.valid_base_url(base_url):
+                return web.json_response({"error": "优化器站点地址必须以 http:// 或 https:// 开头"}, status=400)
+            import aiohttp
+
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as client:
+                    async with client.get(f"{base_url}/models",
+                                          headers={"authorization": f"Bearer {api_key}"}) as upstream:
+                            text = await upstream.text()
+                            if upstream.status != 200:
+                                return web.json_response({"error": f"拉取模型失败（HTTP {upstream.status}）：{text[:160]}"}, status=502)
+                            payload = json.loads(text) if text.strip() else {}
+            except Exception as error:  # noqa: BLE001
+                return web.json_response({"error": f"拉取模型失败：{error}"}, status=502)
+            ids = []
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(data, list):
+                ids = sorted({str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")})
+            return web.json_response({"models": ids})
+
+    # ---- 提示词优化：服务端中转 OpenAI 兼容接口（SSE 流式透传，非流式回落）。
+    #      系统规则（sd25-pe 技能原文）只在服务端注入；密钥只在服务端使用，不回传浏览器。
+    #      守卫：loopback 限定 + base_url 必须 http(s)（base_url 来自请求体，缺守卫即 SSRF）。 ----
     if _ensure("POST", "/ariadne/optimize"):
         @routes.post("/ariadne/optimize")
         async def ariadne_optimize(request):
@@ -238,31 +298,117 @@ def register_routes():
                 return web.json_response({"error": "仅限本机访问"}, status=403)
             try:
                 body = await _json_body(request)
-                opt = config.load_config().get("optimizer") or {}
-                base_url = str(body.get("base_url") or opt.get("base_url") or "").strip().rstrip("/")
-                model = str(body.get("model") or opt.get("model") or "").strip()
-                api_key = str(body.get("api_key") or opt.get("api_key") or "").strip()
-                prompt = str(body.get("prompt") or "")
-                if not (base_url and model and api_key):
-                    return web.json_response({"error": "优化器未配置完整：请在 Ariadne 工作台填写站点/模型/Key"}, status=400)
-
-                from ariadne_core.http import request_json
-
-                def _call():
-                    return request_json(
-                        "POST", f"{base_url}/chat/completions", phase="提示词优化",
-                        headers={"content-type": "application/json", "authorization": f"Bearer {api_key}"},
-                        json_body={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
-                        timeout=300,
-                    )
-
-                response, payload = await asyncio.to_thread(_call)
-                if response.status_code != 200:
-                    return web.json_response({"error": f"优化器返回 HTTP {response.status_code}：{response.text[:200]}"}, status=502)
-                try:
-                    text = payload["choices"][0]["message"]["content"]
-                except (KeyError, IndexError, TypeError):
-                    return web.json_response({"error": f"优化器响应结构异常：{str(payload)[:200]}"}, status=502)
-                return web.json_response({"text": text})
             except ValueError as error:
                 return web.json_response({"error": str(error)}, status=400)
+            opt = config.load_config().get("optimizer") or {}
+            from ariadne_core.seedance import optimizer as optimizer_core
+
+            base_url = optimizer_core.normalize_base_url(str(body.get("base_url") or opt.get("base_url") or ""))
+            model = str(body.get("model") or opt.get("model") or "").strip()
+            api_key = str(opt.get("api_key") or "").strip()  # 请求体不再收 Key：密钥只在服务端
+            user_content = str(body.get("prompt") or "")
+            # skill 按节点类型区分（Seedance 2.5 = sd25-pe；文件名白名单校验防路径注入）。
+            skill = str(body.get("skill") or optimizer_core.DEFAULT_SKILL).strip()
+            if not optimizer_core.valid_skill_name(skill):
+                return web.json_response({"error": f"未知优化技能：{skill}"}, status=400)
+            if not (base_url and model and api_key):
+                return web.json_response({"error": "优化器未配置完整：请在侧栏「Ariadne 设置」填写站点/模型/Key"}, status=400)
+            if not optimizer_core.valid_base_url(base_url):
+                return web.json_response({"error": "优化器站点地址必须以 http:// 或 https:// 开头"}, status=400)
+            disable_thinking = optimizer_core.supports_thinking_toggle(base_url)
+
+            import json as _json
+
+            import aiohttp  # ComfyUI 服务端自带依赖
+
+            upstream_body = optimizer_core.build_chat_body(model, user_content, disable_thinking, skill)
+            headers = {"content-type": "application/json", "authorization": f"Bearer {api_key}"}
+            timeout = aiohttp.ClientTimeout(total=300, connect=15)
+
+            def _parser():
+                return optimizer_core.new_sse_parser()
+
+            # 已向客户端 prepare 的流；一旦建立，后续错误一律以 SSE error 事件下发，
+            # 绝不再返回 JSON 响应（同一连接上二次写响应会污染字节流）。
+            live_stream: list = []
+
+            async def _stream_response(client):
+                """SSE 透传：上游 delta → 本地 data: {delta}; 结束发 data: [DONE]。"""
+                response = web.StreamResponse(headers={
+                    "content-type": "text/event-stream; charset=utf-8",
+                    "cache-control": "no-cache",
+                    "x-accel-buffering": "no",
+                })
+                await response.prepare(request)
+                live_stream.append(response)
+
+                async def _send(payload: dict):
+                    await response.write(f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
+
+                # 上游非 200：无论内容型是否 SSE，统一先报错，不把错误体当对话正文解析/透传。
+                if upstream.status != 200:
+                    error_text = await upstream.text()
+                    await _send({"error": f"优化器返回 HTTP {upstream.status}：{error_text[:200]}"})
+                    await _send({"done": True})
+                    await response.write_eof()
+                    return response
+
+                # upstream.headers 是 CIMultiDict（大小写不敏感）；转成普通 dict 会丢这个性质。
+                if "text/event-stream" in upstream.headers.get("content-type", ""):
+                    state = _parser()
+                    buf = b""
+                    async for raw in upstream.content:
+                        buf += raw
+                        # 只解码到最近一个完整行（\n 不会出现在多字节 UTF-8 序列内部，
+                        # 按行切分不会切碎中文字符；残行留在 buf 等下一个 chunk）。
+                        while b"\n" in buf:
+                            line, buf = buf.split(b"\n", 1)
+                            for delta in optimizer_core.feed_sse(state, line.decode("utf-8", "replace") + "\n"):
+                                await _send({"delta": delta})
+                    if buf.strip():
+                        # 上游末尾无换行的残行：收尾补喂一次，避免丢最后一个事件
+                        for delta in optimizer_core.feed_sse(state, buf.decode("utf-8", "replace") + "\n"):
+                            await _send({"delta": delta})
+                else:
+                    # 非流式回落：上游不支持 SSE 时一次性取回正文，不伪造逐字动画。
+                    text = await upstream.text()
+                    try:
+                        payload = _json.loads(text) if text.strip() else {}
+                    except ValueError:
+                        payload = {}  # 上游错误页/纯文本：按结构异常报错
+                    try:
+                        content = payload["choices"][0]["message"]["content"]
+                    except (KeyError, IndexError, TypeError):
+                        await _send({"error": f"优化器响应结构异常：{str(payload)[:200]}"})
+                    else:
+                        if content:
+                            await _send({"delta": content})
+                await _send({"done": True})
+                await response.write_eof()
+                return response
+
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as client:
+                    async with client.post(f"{base_url}/chat/completions", headers=headers,
+                                           json=upstream_body) as upstream:
+                        return await _stream_response(client)
+            except asyncio.CancelledError:
+                # 前端 AbortController 断开：aiohttp 取消处理协程，直接上抛结束透传。
+                raise
+            except asyncio.TimeoutError:
+                if live_stream:
+                    return live_stream[0]
+                return web.json_response({"error": "优化请求超时（300s）"}, status=504)
+            except Exception as error:  # noqa: BLE001
+                import traceback
+
+                traceback.print_exc()  # 流式链路错误留痕（静默 502 最难查）
+                if live_stream:
+                    try:
+                        error_event = _json.dumps({"error": f"优化请求失败：{error}"}, ensure_ascii=False)
+                        await live_stream[0].write(f"data: {error_event}\n\n".encode("utf-8"))
+                        await live_stream[0].write_eof()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return live_stream[0]
+                return web.json_response({"error": f"优化请求失败：{error}"}, status=502)
