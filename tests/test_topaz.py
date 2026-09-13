@@ -132,7 +132,7 @@ class TopazEndToEndMockTests(unittest.TestCase):
 
         captured = {}
 
-        def fake_upload(kind, path, api_key):
+        def fake_upload(kind, path, api_key, **kwargs):
             captured["upload"] = (kind, path, api_key)
             return "https://kie.example/uploaded.mp4"
 

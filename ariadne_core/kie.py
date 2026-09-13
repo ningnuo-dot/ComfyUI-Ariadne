@@ -21,39 +21,73 @@ UPLOAD_PATH = {"image": "images/user-uploads", "video": "videos/user-uploads", "
 KIND_LABEL = {"image": "图片", "video": "视频", "audio": "音频"}
 
 
-def upload_to_kie(kind: str, file_path: str, api_key: str) -> str:
-    """上传本地文件到 Kie 自家接口（图片≤30MB/视频≤200MB/音频≤15MB），返回公网 downloadUrl。"""
+UPLOAD_PROGRESS: dict[str, dict] = {}  # 上传进度注册表（节点 id → sent/total/name），执行线程内原子赋值，GIL 安全
+
+
+class _CountingFile:
+    """包装只读句柄：requests 分块读取时累计已发字节并写入进度注册表。"""
+
+    def __init__(self, handle, total: int, progress_key: str):
+        self._handle = handle
+        self._key = progress_key
+        self.len = total  # requests 的 super_len 读 .len 定 Content-Length
+
+    def read(self, size: int = -1):
+        chunk = self._handle.read(size)
+        entry = UPLOAD_PROGRESS.get(self._key)
+        if entry is not None:
+            entry["sent"] += len(chunk)
+        return chunk
+
+    def close(self):
+        self._handle.close()
+
+
+def upload_to_kie(kind: str, file_path: str, api_key: str, progress_key: str | None = None) -> str:
+    """上传本地文件到 Kie 自家接口（图片≤30MB/视频≤200MB/音频≤15MB），返回公网 downloadUrl。
+
+    progress_key 给定时把上传进度写进 UPLOAD_PROGRESS[progress_key]（面板轮询用），结束后移除。
+    """
     path = Path(file_path)
     last_error: Exception | None = None
-    for attempt in range(1, UPLOAD_RETRIES + 1):
-        try:
-            import requests
-
-            name = f"ariadne-{kind}-{int(time.time() * 1000)}-{random.randbytes(4).hex()}{path.suffix or ''}"
-            with open(path, "rb") as handle:
-                response = requests.post(
-                    KIE_UPLOAD_URL,
-                    headers={"authorization": f"Bearer {api_key.strip()}"},
-                    files={"file": (name, handle)},
-                    data={"uploadPath": UPLOAD_PATH[kind], "fileName": name},
-                    timeout=600,
-                )
+    try:
+        for attempt in range(1, UPLOAD_RETRIES + 1):
             try:
-                payload = response.json()
-            except ValueError:
-                payload = None
-            if response.status_code != 200 or not (payload or {}).get("data"):
-                raise RuntimeError(
-                    f"Kie 上传接口返回 HTTP {response.status_code}：{(payload or {}).get('message') or '无响应体'}"
-                )
-            url = str((payload["data"] or {}).get("downloadUrl") or (payload["data"] or {}).get("fileUrl") or "")
-            if not url:
-                raise RuntimeError("Kie 上传接口未返回 downloadUrl")
-            return url
-        except Exception as error:  # noqa: BLE001 - 重试后统一抛出
-            last_error = error
-            if attempt < UPLOAD_RETRIES:
-                time.sleep(0.8 * attempt)
+                import requests
+
+                name = f"ariadne-{kind}-{int(time.time() * 1000)}-{random.randbytes(4).hex()}{path.suffix or ''}"
+                with open(path, "rb") as handle:
+                    upload_source = handle
+                    if progress_key:
+                        total = path.stat().st_size
+                        UPLOAD_PROGRESS[progress_key] = {"sent": 0, "total": total, "name": path.name}
+                        upload_source = _CountingFile(handle, total, progress_key)
+                    response = requests.post(
+                        KIE_UPLOAD_URL,
+                        headers={"authorization": f"Bearer {api_key.strip()}"},
+                        files={"file": (name, upload_source)},
+                        data={"uploadPath": UPLOAD_PATH[kind], "fileName": name},
+                        timeout=600,
+                    )
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                if response.status_code != 200 or not (payload or {}).get("data"):
+                    raise RuntimeError(
+                        f"Kie 上传接口返回 HTTP {response.status_code}：{(payload or {}).get('message') or '无响应体'}"
+                    )
+                url = str((payload["data"] or {}).get("downloadUrl") or (payload["data"] or {}).get("fileUrl") or "")
+                if not url:
+                    raise RuntimeError("Kie 上传接口未返回 downloadUrl")
+                return url
+            except Exception as error:  # noqa: BLE001 - 重试后统一抛出
+                last_error = error
+                if attempt < UPLOAD_RETRIES:
+                    time.sleep(0.8 * attempt)
+    finally:
+        if progress_key:
+            UPLOAD_PROGRESS.pop(progress_key, None)
     raise RuntimeError(f"向 Kie 上传{KIND_LABEL[kind]}素材失败（已重试 {UPLOAD_RETRIES} 次）：{last_error}")
 
 

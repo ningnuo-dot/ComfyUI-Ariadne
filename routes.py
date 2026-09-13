@@ -11,7 +11,7 @@ import os
 import uuid
 from pathlib import Path
 
-from ariadne_core import config, topaz
+from ariadne_core import config, kie, topaz
 from ariadne_core.media import detect_cut_points, trim_video
 from ariadne_core.seedance import pricing
 from ariadne_core.seedance.ark_media import probe_video
@@ -229,6 +229,14 @@ def register_routes():
             return web.json_response(config.masked_config())
 
     # ---- TOS 试传（一键验证桶配置） ----
+    # ---- Kie 上传进度（面板轮询）：key = 节点 id，值 {sent,total,name}；loopback 限定 ----
+    if _ensure("GET", "/ariadne/kie_upload_progress"):
+        @routes.get("/ariadne/kie_upload_progress")
+        async def ariadne_kie_upload_progress(request):
+            if not _loopback_only(request):
+                return web.json_response({"error": "仅限本机访问"}, status=403)
+            return web.json_response({"progress": dict(kie.UPLOAD_PROGRESS)})
+
     if _ensure("POST", "/ariadne/tos_test"):
         @routes.post("/ariadne/tos_test")
         async def ariadne_tos_test(request):

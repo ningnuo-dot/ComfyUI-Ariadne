@@ -376,8 +376,10 @@ function trackQueueResult(node, submitted) {
 
 async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
     const deadline = Date.now() + timeoutMs;
+    let tick = 0;
     while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        tick += 1;
         let entry = null;
         try {
             entry = (await (await fetch(`/history/${pid}`)).json())[pid] || null;
@@ -386,6 +388,20 @@ async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
             persistStatus(node, humanizeExecutionResult(entry));
             if (isPanelMounted(node) && state.node === node) render();
             return;
+        }
+        // Kie 渠道大文件上传可能要几分钟：有进度就显示「上传素材中 X%」，不再干等黑箱
+        if (tick % 3 === 0) {
+            try {
+                const progress = (await (await fetch("/ariadne/kie_upload_progress")).json()).progress || {};
+                const info = progress[String(node.id)];
+                if (info && info.total) {
+                    const pct = Math.min(100, Math.round((info.sent / info.total) * 100));
+                    const sent = (info.sent / 1048576).toFixed(1);
+                    const total = (info.total / 1048576).toFixed(1);
+                    persistStatus(node, `上传素材中 ${pct}%（${sent}/${total}MB）…`);
+                    if (isPanelMounted(node) && state.node === node) render();
+                }
+            } catch { /* 进度查询失败不影响结果轮询 */ }
         }
     }
     persistStatus(node, "生成时间较长（已监控 45 分钟），结果以队列面板为准");

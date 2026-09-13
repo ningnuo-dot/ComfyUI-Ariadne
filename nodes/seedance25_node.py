@@ -72,14 +72,14 @@ def _assign_labels(assets: list[SeedanceAsset]) -> None:
         asset.label = f"@{prefix[asset.kind]}{counters[asset.kind]}"
 
 
-def _normalize_to_channel(asset: SeedanceAsset, channel: str, tos: dict | None, api_key: str) -> str:
+def _normalize_to_channel(asset: SeedanceAsset, channel: str, tos: dict | None, api_key: str, progress_key: str | None = None) -> str:
     """本地文件路径 → 渠道可用地址；公网 URL 原样透传。"""
     url = asset.url
     if not url or is_public_http_url(url) or url.startswith(("data:", "asset:")):
         return url
     if channel == "kie":
         kind = "video" if asset.kind == "video" else ("audio" if asset.kind == "audio" else "image")
-        return kie_core.upload_to_kie(kind, url, api_key)
+        return kie_core.upload_to_kie(kind, url, api_key, progress_key=progress_key)
     return to_ark_safe_url(url, asset.kind, tos)
 
 
@@ -139,8 +139,8 @@ def _run_generation(*, prompt, task_type, duration, resolution, aspect_ratio, ge
     else:
         api_key = config.resolve_kie_key()
         normalized = [
-            SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "kie", None, api_key),
-                          asset.label, asset.timestamp_seconds)
+            SeedanceAsset(asset.kind, asset.role, _normalize_to_channel(asset, "kie", None, api_key,
+                              progress_key=str(getattr(node, "id", ""))), asset.label, asset.timestamp_seconds)
             for asset in spec.assets
         ]
         spec.assets = normalized

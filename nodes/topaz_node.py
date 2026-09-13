@@ -63,7 +63,7 @@ class AriadneTopazUpscale:
         except Exception:  # noqa: BLE001 - 时长仅供估价，探测失败不阻断
             duration = 0.0
 
-        video_url = kie_core.upload_to_kie("video", source_path, api_key)
+        video_url = kie_core.upload_to_kie("video", source_path, api_key, progress_key=str(getattr(self, "id", "")))
         task_id = kie_core.create_task(topaz_core.compile_request(video_url, factor, nsfw_checker), api_key)
         print(f"[Ariadne] Topaz 超分任务已创建 {task_id}（{topaz_core.FACTOR_LABELS[factor]}），开始轮询…")
         result = kie_core.poll_task(task_id, api_key, poll_interval_seconds=poll_interval_seconds,
