@@ -374,14 +374,14 @@ function trackQueueResult(node, submitted) {
         });
 }
 
-// 只刷新状态行文本，不整面板重绘——整面板 render 会打断正在进行的中文输入法组词与焦点
+// 只刷新状态行文本并按节点记忆，不做整面板重绘——整面板 render 会打断输入法组词与焦点。
+// textContent 单行写入开销可忽略；状态行不存在（如参数页）时静默跳过，回创作页随 render 带出。
 function updateNoteText(node, text) {
     persistStatus(node, text);
-    if (isPanelMounted(node) && state.node === node) {
+    if (isPanelMounted(node) && state.node === node && state.page === "create") {
         const noteEl = els.body.querySelector(".ariadne-dock-note");
-        if (noteEl) { noteEl.textContent = text; return; }
+        if (noteEl) noteEl.textContent = text;
     }
-    render();
 }
 
 async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
