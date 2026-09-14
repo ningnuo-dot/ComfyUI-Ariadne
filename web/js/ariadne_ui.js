@@ -88,6 +88,7 @@ function applyChineseLabels(node) {
         first_frame: "首帧", last_frame: "尾帧", character_images: "人物参考图",
         wardrobe_images: "服装参考图", scene_images: "场景参考图", motion_video: "动作参考视频",
         reference_audio: "参考音频", reference_images: "参考图", source_video: "源视频",
+        image_1: "图像1", image_2: "图像2", image_3: "图像3",
     };
     const set = () => {
         const map = {};

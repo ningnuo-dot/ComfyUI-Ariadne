@@ -10,6 +10,10 @@ import {
     splitPromptChips, setWidgetValue, setProp, syncTiles, tileKey, tilesOf, widgetValue, writeTiles,
 } from "../../web/js/ariadne_adapter.js";
 import { feedStreamEvent, newStreamState } from "../../web/js/ariadne_optimizer_client.js";
+import { readFileSync } from "node:fs";
+
+const adapterPath = new URL("../../web/js/ariadne_adapter.js", import.meta.url);
+const workbenchPath = new URL("../../web/js/ariadne_workbench.js", import.meta.url);
 
 function makeNode(widgets = {}, inputs = [], connections = {}) {
     return {
@@ -341,4 +345,20 @@ test("人话摘要：失败按原因归类（积分/合规/参数缺失/兜底�
         "❌ 参数缺失：节点必填参数没有提交成功",
     );
     assert.equal(humanizeExecutionResult(entry("某奇怪错误 ABCDEF")), "❌ 失败：某奇怪错误 ABCDEF");
+});
+
+
+test("workbench 引用的 adapter 导出必须已导入（防 SEEDANCE_TYPE is not defined 复发）", () => {
+    const adapterSrc = readFileSync(adapterPath, "utf8");
+    const wbSrc = readFileSync(workbenchPath, "utf8");
+    const exported = [...adapterSrc.matchAll(/export (?:const|function|class) ([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    const importBlock = wbSrc.match(/import \{([\s\S]*?)\} from "\.\/ariadne_adapter\.js"/);
+    assert.ok(importBlock, "workbench 缺少 adapter 导入块");
+    const imported = new Set(importBlock[1].split(",").map((s) => s.trim()).filter(Boolean));
+    const missing = exported.filter((name) => {
+        const used = new RegExp(`\b${name}\b`).test(wbSrc);
+        const locallyDeclared = new RegExp(`(?:function|const|let|var|class)\s+${name}\b`).test(wbSrc);
+        return used && !locallyDeclared && !imported.has(name);
+    });
+    assert.deepEqual(missing, [], `workbench 使用了未导入的 adapter 导出：${missing.join(", ")}`);
 });

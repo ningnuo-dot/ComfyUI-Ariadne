@@ -6,7 +6,7 @@
 // 行内 @胶囊提示词、单行底栏（参数摘要｜✧优化｜状态▾历史｜有声/尾帧/裁剪｜价格+生成）。
 
 import {
-    MODES, KIND_LABEL, ROLE_LABEL, SEEDANCE_FREE_TYPE, VIDEO_PANEL_TYPES, buildOptimizerUserContent,
+    MODES, KIND_LABEL, ROLE_LABEL, SEEDANCE_TYPE, SEEDANCE_FREE_TYPE, VIDEO_PANEL_TYPES, buildOptimizerUserContent,
     collectAssets, humanizeExecutionResult, isInputConnected, modeOf, modeRules, normalizeAspectLock, prop,
     setMode, setProp, setWidgetValue, skillForNode, tileKey,
     tilesOf, widgetValue,
