@@ -374,6 +374,16 @@ function trackQueueResult(node, submitted) {
         });
 }
 
+// 只刷新状态行文本，不整面板重绘——整面板 render 会打断正在进行的中文输入法组词与焦点
+function updateNoteText(node, text) {
+    persistStatus(node, text);
+    if (isPanelMounted(node) && state.node === node) {
+        const noteEl = els.body.querySelector(".ariadne-dock-note");
+        if (noteEl) { noteEl.textContent = text; return; }
+    }
+    render();
+}
+
 async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
     const deadline = Date.now() + timeoutMs;
     let tick = 0;
@@ -385,8 +395,7 @@ async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
             entry = (await (await fetch(`/history/${pid}`)).json())[pid] || null;
         } catch { /* 网络抖动继续等 */ }
         if (entry) {
-            persistStatus(node, humanizeExecutionResult(entry));
-            if (isPanelMounted(node) && state.node === node) render();
+            updateNoteText(node, humanizeExecutionResult(entry));
             return;
         }
         // Kie 渠道大文件上传可能要几分钟：有进度就显示「上传素材中 X%」，不再干等黑箱
@@ -398,14 +407,12 @@ async function pollHistory(node, pid, timeoutMs = 45 * 60000) {
                     const pct = Math.min(100, Math.round((info.sent / info.total) * 100));
                     const sent = (info.sent / 1048576).toFixed(1);
                     const total = (info.total / 1048576).toFixed(1);
-                    persistStatus(node, `上传素材中 ${pct}%（${sent}/${total}MB）…`);
-                    if (isPanelMounted(node) && state.node === node) render();
+                    updateNoteText(node, `上传素材中 ${pct}%（${sent}/${total}MB）…`);
                 }
             } catch { /* 进度查询失败不影响结果轮询 */ }
         }
     }
-    persistStatus(node, "生成时间较长（已监控 45 分钟），结果以队列面板为准");
-    if (isPanelMounted(node) && state.node === node) render();
+    updateNoteText(node, "生成时间较长（已监控 45 分钟），结果以队列面板为准");
 }
 
 // 裁剪目标解析：优先上传的视频瓦片；否则取连线动作视频上游的源文件名
@@ -799,15 +806,25 @@ function makePromptEditor(node) {
         }
         editor.dispatchEvent(new Event("input", { bubbles: true }));
     };
-    editor.addEventListener("input", () => {
+    // 组词守卫：拼音组词过程中的 input 事件只存值、不重渲染胶囊——重绘会打断输入法
+    //（中文输入被打断的根因，2026-09-14）；compositionend 后再做一次完整渲染。
+    let composing = false;
+    const handleInput = () => {
         const text = getValue();
         lastValue = text;  // 同步对照值：否则 blur 空读保护会用旧值复活已删除的内容
+        setWidgetValue(node, "prompt", text);
+        if (composing) return;
         // 输入即渲染胶囊（@标签完成瞬间变胶囊）；保留光标位置防跳字
         const caret = caretOffsetIn(editor);
         render(text);
         if (caret !== null) placeCaretOffset(editor, Math.min(caret, text.length));
-        setWidgetValue(node, "prompt", text);
+    };
+    editor.addEventListener("compositionstart", () => { composing = true; });
+    editor.addEventListener("compositionend", () => {
+        composing = false;
+        handleInput();
     });
+    editor.addEventListener("input", handleInput);
     // 芯片可拖进提示词：drop 处按落点插入 @引用
     editor.addEventListener("dragover", (event) => {
         event.preventDefault();
