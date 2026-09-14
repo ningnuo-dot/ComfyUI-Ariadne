@@ -276,16 +276,35 @@ function makeDockButtonWidget(node) {
         } catch { /* 新前端布局自适应 */ }
     }, 30);
 
+    // 面板锚点宽度逐帧自校准：目标屏宽 = 节点宽×画布缩放。前端对 DOM widget 的缩放行为
+    // 不做假设——每帧用 getBoundingClientRect 实测纠偏，一步收敛，缩放/拖动实时跟随不漂移。
+    let anchorSyncRaf = 0;
+    const syncAnchorWidth = () => {
+        if (anchor.style.display === "none") { anchorSyncRaf = 0; return; }
+        try {
+            const scale = app.canvas?.ds?.scale || 1;
+            const target = Math.max(120, (Number(node.size?.[0]) || 300) * scale);
+            const styled = parseFloat(anchor.style.width) || 100;
+            const shown = anchor.getBoundingClientRect().width || styled;
+            if (shown > 0 && Math.abs(shown - target) > 0.5) {
+                anchor.style.width = `${Math.max(50, (styled * target) / shown)}px`;
+            }
+        } catch { /* 画布未就绪，下帧再试 */ }
+        anchorSyncRaf = requestAnimationFrame(syncAnchorWidth);
+    };
+
     // 面板开关挂到节点上：创作台「收起」按钮与节点按钮共用同一入口
     node.__ariadnePanelApi = {
         show() {
             anchor.style.display = "block";
             mountPanel(anchor, node, scheduleResize);
             scheduleResize();
+            if (!anchorSyncRaf) anchorSyncRaf = requestAnimationFrame(syncAnchorWidth);
         },
         hide() {
             unmountPanel();
             anchor.style.display = "none";
+            if (anchorSyncRaf) { cancelAnimationFrame(anchorSyncRaf); anchorSyncRaf = 0; }
         },
         toggle() {
             if (anchor.style.display === "none") node.__ariadnePanelApi.show();
