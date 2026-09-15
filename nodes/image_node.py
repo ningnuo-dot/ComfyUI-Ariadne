@@ -31,7 +31,7 @@ def _default_download_folder():
 class AriadneKieImage:
     """Ariadne · Kie 图生图（nano-banana-pro 默认 / seedream / grok / gpt-image）"""
 
-    CATEGORY = "Ariadne/图像"
+    CATEGORY = "1、Ariadne/图像"
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("图像", "任务信息")
     OUTPUT_NODE = True

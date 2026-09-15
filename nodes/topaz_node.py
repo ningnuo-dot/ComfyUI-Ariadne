@@ -23,7 +23,7 @@ def _default_download_folder():
 class AriadneTopazUpscale:
     """Ariadne · Topaz 视频超分（Kie：1× 修复增强 / 2× / 4× 放大）"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True

@@ -54,7 +54,7 @@ def _download_result(urls: list[str], destination: Path, task_id: str) -> str:
 class AriadneOmniVideo:
     """Ariadne · Omni 1.1 参考素材视频（Kie）：人物/场景/动作/固定角色四路输入"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     FUNCTION = "generate"
@@ -152,7 +152,7 @@ class AriadneOmniVideo:
 class AriadneOmniFirstLastFrame:
     """Ariadne · Omni 1.1 首尾帧过渡（Kie）：首帧必填、尾帧可选"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     FUNCTION = "generate"

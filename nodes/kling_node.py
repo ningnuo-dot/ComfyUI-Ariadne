@@ -36,7 +36,7 @@ def _json_of(value: str, field: str) -> list:
 class AriadneKlingVideo:
     """Ariadne · 可灵 Kling 3.0 视频生成（Kie：文生/首帧/首尾帧/全能参考元素/多镜头）"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True

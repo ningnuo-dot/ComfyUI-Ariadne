@@ -190,7 +190,7 @@ def _run_generation(*, prompt, task_type, duration, resolution, aspect_ratio, ge
 class AriadneSeedance25Video:
     """Ariadne · Seedance 2.5 视频生成（方舟直连/Kie 双渠道，全能参考/编辑/延长/首尾帧全模式）。"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True

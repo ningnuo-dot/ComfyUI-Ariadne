@@ -29,7 +29,7 @@ def _default_download_folder():
 class AriadneVeo31Video:
     """Ariadne · Veo 3.1 视频生成（Kie：文生/首尾帧/全能参考/延长）"""
 
-    CATEGORY = "Ariadne/视频"
+    CATEGORY = "1、Ariadne/视频"
     RETURN_TYPES = ("VIDEO", "STRING")
     RETURN_NAMES = ("视频", "任务信息")
     OUTPUT_NODE = True

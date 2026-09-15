@@ -35,7 +35,7 @@ def _tensor_from_png(path: str):
 class AriadneInstantPainting:
     """Ariadne · 一瞬入画（视频/多图 → 高保真场景图）"""
 
-    CATEGORY = "Ariadne/图像"
+    CATEGORY = "1、Ariadne/图像"
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("图像", "任务信息")
     OUTPUT_NODE = True
